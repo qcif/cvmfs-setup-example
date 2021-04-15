@@ -11,7 +11,7 @@
 #
 # For example,
 #
-#     monitor.sh /cvmfs/demo.example.org/README.txt
+#     monitor.sh /cvmfs/data.example.org/README.txt
 #
 # Copyright (C) 2021, QCIF Ltd.
 #================================================================

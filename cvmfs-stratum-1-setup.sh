@@ -207,7 +207,7 @@ REPO_FQRN: fully qualified repository name
 PUBKEY: file containing the repository's public key
 
 e.g. $EXE_EXT --stratum-0 s0.example.net \\
-       demo.example.org.pub  tools.example.org:pubkey.pub
+       data.example.org.pub  tools.example.org:pubkey.pub
 
 EOF
   if [ -n "$VERBOSE" ]; then

@@ -94,7 +94,7 @@ Options:
 REPOSITORY_IDS: fully qualified repository names of the repositories to create
 
 e.g. $EXE_EXT \\
-       demo.example.org tools.example.org
+       data.example.org tools.example.org
 
 EOF
 

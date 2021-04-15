@@ -1,7 +1,7 @@
 # CernVM-FS setup for demonstration CVMFS repositories
 
-Scripts for setting up a CernVM-FS system for demonstration purposes.
-These scripts can be used to deploy:
+Scripts for setting up an example CernVM-FS system.  These scripts can
+be used to deploy the following servers:
 
 - CernVM-FS Stratum 0
 - CernVM-FS Stratum 1 replicas
@@ -31,7 +31,7 @@ also provide redundancy.
 ## Example usage
 
 This example shows the use of these scripts to create and use a
-CernVM-FS repository called _demo.example.org_.
+CernVM-FS repository called _data.example.org_.
 
 It is assumed there are four hosts are:
 
@@ -55,11 +55,11 @@ reassuring to see some output as it runs.
 Create the Stratum 0 central server by running:
 
 ```sh
-[stratum-0]$ sudo ./cvmfs-stratum-0-setup.sh -v demo.example.org
+[stratum-0]$ sudo ./cvmfs-stratum-0-setup.sh -v data.example.org
 ```
 
 Keys for the repository will be generated.  Copy the public key for
-the created repository (from "/etc/cvmfs/keys/demo.example.org.pub")
+the created repository (from "/etc/cvmfs/keys/data.example.org.pub")
 to the Stratum 1 host(s) and to the client host(s).
 
 The Stratum 1 host(s) must be able to connect to port 80 on the
@@ -74,7 +74,7 @@ Create a Stratum 1 replica by running:
   --stratum-0 10.0.0.1 \
   --servername 10.1.1.1 \
   --refresh 2 \
-  demo.example.org.pub
+  data.example.org.pub
 ```
 
 The optional `--servername` is used to set the _ServerName_ in the
@@ -89,7 +89,7 @@ repository name_ followed by a ".pub" extension. The script uses the
 basename of the file name without the ".pub" extension as the _fully
 qualified repository name_. If the file name is different, the
 argument must be the _fully qualified repository name_ followed by a
-colon and the file name (e.g. "demo.example.org:pubkey.pem").
+colon and the file name (e.g. "data.example.org:pubkey.pem").
 
 The proxy host(s) must be able to connect to ports 80 and 8000 on the
 Stratum 1 host(s).
@@ -113,7 +113,7 @@ Create a client by running:
 
 ```sh
 [client]$ sudo ./cvmfs-client-setup.sh -v \
-  --stratum-1 10.1.1.1 --proxy 10.2.2.2 --no-geo-api demo.example.org.pub
+  --stratum-1 10.1.1.1 --proxy 10.2.2.2 --no-geo-api data.example.org.pub
 ```
 
 The `--no-geo-api` option is required, because the Stratum 1 server
@@ -135,10 +135,10 @@ accessed (and are automatically unmounted when not used).
 
 ```sh
 [client]$ ls /cvmfs
-[client]$ ls /cvmfs/demo.example.org
+[client]$ ls /cvmfs/data.example.org
 new_repository
 [client]$ ls /cvmfs
-demo.example.org
+data.example.org
 ```
 
 #### Make changes to the repository
@@ -147,9 +147,9 @@ Add or modify files in the repository by starting a transaction,
 making the changes and then publishing the changes.
 
 ```sh
-[stratum-0]$ cvmfs_server transaction demo.example.org
-[stratum-0]$ echo "Hello world!" > /cvmfs/demo.example.org/README.txt
-[stratum-0]$ cvmfs_server publish demo.example.org
+[stratum-0]$ cvmfs_server transaction data.example.org
+[stratum-0]$ echo "Hello world!" > /cvmfs/data.example.org/README.txt
+[stratum-0]$ cvmfs_server publish data.example.org
 ```
 
 If the above commands are run as the repository user, root privileges
@@ -166,7 +166,7 @@ repository) was set to run every 2 minutes, and a little more time is
 needed for it and the proxy and client caches to update.
 
 ```sh
-[client]$ ls /cvmfs/demo.example.org
+[client]$ ls /cvmfs/data.example.org
 new_repository  README.txt
 [client]$ cvmfs_config stat -v
 ```

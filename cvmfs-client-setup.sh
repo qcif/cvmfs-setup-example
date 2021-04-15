@@ -207,7 +207,7 @@ PUBKEY: file containing the repository's public key
 * = at least one --proxy or --direct is required
 
 e.g. $EXE_EXT --stratum-1 s1.example.org --proxy p.example.org -n
-       demo.example.org.pub tools.example.org:pubkey.pub
+       data.example.org.pub tools.example.org:pubkey.pub
 
 EOF
 
