@@ -33,12 +33,16 @@ also provide redundancy.
 This example shows the use of these scripts to create and use a
 CernVM-FS repository called _data.example.org_.
 
-It is assumed there are four hosts are:
+It is assumed there are four hosts:
 
 - 10.0.0.1 for the Stratum 0
 - 10.1.1.1 for a Stratum 1
 - 10.2.2.2 for a caching proxy
-- 10.3.3.3 for a client (with other clients being in the range 10.3.3.0/24)
+- 10.3.3.3 for a client (with any other clients being in the range 10.3.3.0/24)
+
+For simplicity, only one Stratum 1 replica and only one caching proxy
+is used in this example. But multiple ones can also be deployed for
+improved redundancy and performance.
 
 First, copy the four scripts to their respective hosts.
 
@@ -57,6 +61,9 @@ Create the Stratum 0 central server by running:
 ```sh
 [stratum-0]$ sudo ./cvmfs-stratum-0-setup.sh -v data.example.org
 ```
+
+Where the identifiers used for the repositories are provided as
+arguments ("data.example.org" in this case).
 
 Keys for the repository will be generated.  Copy the public key for
 the created repository (from "/etc/cvmfs/keys/data.example.org.pub")
@@ -102,6 +109,12 @@ Create a proxy by running:
 [proxy]$ sudo ./cvmfs-proxy-setup.sh -v --stratum-1 10.1.1.1 10.3.3.0/24
 ```
 
+The proxy only needs to know about the Stratum 1 replicas and which
+client hosts are allowed to use the proxy. It does not need to know
+where the Stratum 1 host is. It also does not need to know what the
+repositories are (since that information will be in the requests from
+the clients).
+
 The client host(s) must be able to connect to port 3128 on the proxy
 host(s). That is the conventional port used for CernVM-FS caching
 proxies, but it can be changed via a command line option on the
@@ -130,8 +143,9 @@ followed by the file name separated by a colon.
 #### Access the repository from the client
 
 Initially, there are no mount points under the _/cvmfs_ directory,
-since the repositories are automatically mounted when they are
-accessed (and are automatically unmounted when not used).
+since the mounts are using _autofs_.  The repositories will be
+automatically mounted when they are accessed (and are automatically
+unmounted when not used).
 
 ```sh
 [client]$ ls /cvmfs
@@ -140,6 +154,11 @@ new_repository
 [client]$ ls /cvmfs
 data.example.org
 ```
+
+The file called "new_repository" is automatically created in all new
+repositories (when they are created on the Stratum 0). It makes
+testing easier, since there is something to see, but can be deleted
+from the repository.
 
 #### Make changes to the repository
 
@@ -210,23 +229,18 @@ twice. It is only useful for the Stratum 0 and Stratum 1 scripts.
 
 ### Extended help
 
-Extra information is displayed when `-v` is used along with `-h`. That
-information is not related to the script, but are reminder of related
-CernVM-FS commands.
+Extra help information is displayed when `-v` is used along with
+`-h`. That extra information is not related to the script, but are
+a reminder of some useful/related CernVM-FS commands.
 
 ## Limitations
 
-- Installs the Squid from the distribution, which is old and
+- Installs the Squid from the distribution, which may be old and
   deprecated.  A production deployment should use a newer version of
   Squid.
 
 - Only one organisation is supported. But multiple repositories under
   that organisation are possible.
-
-
-## More information
-
-Run the scripts with the `--help` option.
 
 ## Acknowledgements
 
