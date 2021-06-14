@@ -60,6 +60,7 @@ set -e
 
 #----------------------------------------------------------------
 # Command line arguments
+# Note: parsing does not support combining single letter options (e.g. "-vh")
 
 STRATUM_ONE_HOSTS=
 CLIENTS=
@@ -74,18 +75,34 @@ while [ $# -gt 0 ]
 do
   case "$1" in
     -1|--s1|--stratum1|--stratum-1)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       STRATUM_ONE_HOSTS="$STRATUM_ONE_HOSTS $2"
       shift; shift
       ;;
     -p|--port)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       PROXY_PORT="$2"
       shift; shift
       ;;
     -d|--disk-cache)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       DISK_CACHE_SIZE_MB="$2"
       shift; shift
       ;;
     -m|--mem-cache)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       MEM_CACHE_SIZE_MB="$2"
       shift; shift
       ;;
@@ -101,13 +118,12 @@ do
       SHOW_HELP=yes
       shift
       ;;
+    -*)
+      echo "$EXE: usage error: unknown option: $1" >&2
+      exit 2
+      ;;
     *)
-      if echo "$1" | grep ^- >/dev/null; then
-        echo "$EXE: usage error: unknown option: \"$1\"" >&2
-        exit 2
-      fi
-
-      # Use as a client address
+      # Argument
 
       if echo "$1" | grep '^http://' >/dev/null; then
         echo "$EXE: usage error: expecting an address, not a URL: \"$1\"" >&2

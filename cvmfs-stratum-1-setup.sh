@@ -121,6 +121,7 @@ _canonicalise_repo() {
 
 #----------------------------------------------------------------
 # Command line arguments
+# Note: parsing does not support combining single letter options (e.g. "-vh")
 
 STRATUM_0_HOST=
 CVMFS_GEO_LICENSE_KEY=
@@ -138,26 +139,50 @@ while [ $# -gt 0 ]
 do
   case "$1" in
     -0|--s0|--stratum0|--stratum-0)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       STRATUM_0_HOST="$2"
       shift; shift
       ;;
     -g|--geo|--geo-api|--geo-api-key)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       CVMFS_GEO_LICENSE_KEY="$2"
       shift; shift
       ;;
     -s|--servername)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       SERVERNAME="$2"
       shift; shift
       ;;
     -u|--user)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       REPO_USER="$2"
       shift; shift
       ;;
     -r|--refresh)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       REFRESH_MINUTES="$2"
       shift; shift;
       ;;
     -m|--mem-cache)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       MEM_CACHE_SIZE_MB="$2"
       shift; shift
       ;;
@@ -177,11 +202,12 @@ do
       SHOW_HELP=yes
       shift
       ;;
+    -*)
+      echo "$EXE: usage error: unknown option: $1" >&2
+      exit 2
+      ;;
     *)
-      if echo "$1" | grep ^- >/dev/null; then
-        echo "$EXE: usage error: unknown option: \"$1\"" >&2
-        exit 2
-      fi
+      # Argument
 
       REPOS="$REPOS $(_canonicalise_repo "$1")"
 

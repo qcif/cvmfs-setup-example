@@ -39,6 +39,7 @@ set -e
 
 #----------------------------------------------------------------
 # Command line arguments
+# Note: parsing does not support combining single letter options (e.g. "-vh")
 
 REPO_USER="$DEFAULT_REPO_USER"
 VERBOSE=
@@ -51,6 +52,10 @@ while [ $# -gt 0 ]
 do
   case "$1" in
     -u|--user)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       REPO_USER="$2"
       shift; shift
       ;;
@@ -70,15 +75,16 @@ do
       SHOW_HELP=yes
       shift
       ;;
+    -*)
+      echo "$EXE: usage error: unknown option: $1" >&2
+      exit 2
+      ;;
     *)
-      if echo "$1" | grep ^- >/dev/null; then
-        echo "$EXE: usage error: unknown option: \"$1\"" >&2
-        exit 2
-      else
-        # Use as a repository name
-        REPO_IDS="$REPO_IDS $1"
-      fi
-      shift # past argument
+      # Argument
+
+      REPO_IDS="$REPO_IDS $1"
+
+      shift
       ;;
   esac
 done

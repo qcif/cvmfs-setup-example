@@ -94,6 +94,7 @@ _canonicalise_repo() {
 
 #----------------------------------------------------------------
 # Command line arguments
+# Note: parsing does not support combining single letter options (e.g. "-vh")
 
 STRATUM_1_HOSTS=
 CVMFS_HTTP_PROXY=
@@ -154,10 +155,18 @@ do
       shift
       ;;
     -n|--no-geo|--no-geo-api)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       NO_GEO_API=yes
       shift
       ;;
     -c|--cache-size)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
       CVMFS_QUOTA_LIMIT_MB="$2"
       shift; shift
       ;;
@@ -177,11 +186,12 @@ do
       SHOW_HELP=yes
       shift
       ;;
+    -*)
+      echo "$EXE: usage error: unknown option: $1" >&2
+      exit 2
+      ;;
     *)
-      if echo "$1" | grep ^- >/dev/null; then
-        echo "$EXE: usage error: unknown option: \"$1\"" >&2
-        exit 2
-      fi
+      # Argument
 
       REPOS="$REPOS $(_canonicalise_repo "$1")"
 
