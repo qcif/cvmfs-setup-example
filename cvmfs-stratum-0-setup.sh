@@ -280,6 +280,12 @@ if which yum >/dev/null; then
     fi
   fi
 
+elif which apt-get >/dev/null; then
+  # Installing for Debian based systems
+
+  echo "$EXE: Debian/Ubuntu not supported yet: please use CentOS" >&2
+  exit 3
+
 else
   echo "$EXE: unsupported system: no yum or apt-get" >&2
   exit 3
