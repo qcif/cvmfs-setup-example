@@ -87,7 +87,7 @@ display_progress() {
 
 display_finish() {
   tput rc # restore cursor position
-  echo "$STATE at $(date "+%F %T %z") after $(duration)"
+  echo "$STATE $(date "+%FT%T%z") after $(duration)"
   tput bel # beep
 }
 

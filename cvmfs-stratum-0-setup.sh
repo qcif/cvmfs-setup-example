@@ -8,7 +8,7 @@
 #================================================================
 
 PROGRAM='cvmfs-stratum-0-setup'
-VERSION='1.0.0'
+VERSION='1.1.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -37,11 +37,14 @@ PROGRAM_INFO="Created by $PROGRAM $VERSION [$(date '+%F %T %Z')]"
 # Better to abort than to continue running when something went wrong.
 set -e
 
+set -u # fail on attempts to expand undefined environment variables
+
 #----------------------------------------------------------------
 # Command line arguments
 # Note: parsing does not support combining single letter options (e.g. "-vh")
 
 REPO_USER="$DEFAULT_REPO_USER"
+QUIET=
 VERBOSE=
 VERY_VERBOSE=
 SHOW_VERSION=
@@ -58,6 +61,10 @@ do
       fi
       REPO_USER="$2"
       shift; shift
+      ;;
+    -q|--quiet)
+      QUIET=yes
+      shift
       ;;
     -v|--verbose)
       if [ -z "$VERBOSE" ]; then
@@ -94,6 +101,7 @@ if [ -n "$SHOW_HELP" ]; then
 Usage: $EXE_EXT [options] {REPOSITORY_IDS}
 Options:
   -u | --user ID   repository owner account (default: $DEFAULT_REPO_USER)
+  -q | --quiet     output nothng unless an error occurs
   -v | --verbose   output extra information when running
        --version   display version information and exit
   -h | --help      display this help and exit
@@ -172,11 +180,17 @@ else
   DISTRO=unknown
 fi
 
-if echo "$DISTRO" | grep '^CentOS Linux release 7' > /dev/null; then
+if echo "$DISTRO" | grep -q '^CentOS Linux release 7'; then
   :
-elif echo "$DISTRO" | grep '^CentOS Linux release 8' > /dev/null; then
+elif echo "$DISTRO" | grep -q '^CentOS Linux release 8' ; then
   :
-elif echo "$DISTRO" | grep '^CentOS Stream release 8' > /dev/null; then
+elif echo "$DISTRO" | grep -q '^CentOS Stream release 8'; then
+  :
+elif [ "$DISTRO" = 'Ubuntu 21.04' ]; then
+  :
+elif [ "$DISTRO" = 'Ubuntu 20.04' ]; then
+  :
+elif [ "$DISTRO" = 'Ubuntu 20.10' ]; then
   :
 else
   # Add additional elif-statements for tested systems
@@ -192,16 +206,63 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 #----------------------------------------------------------------
-# Install CernVM-FS client and server
+# Install (cvmfs, cvmfs-server, and Apache Web Server)
 
 # Use LOG file to suppress apt-get messages, only show on error
 # Unfortunately, "apt-get -q" and "yum install -q" still produces output.
 LOG="/tmp/${PROGRAM}.$$"
 
-_yum_install() {
-  PKG="$1"
+#----------------
+# Fedora functions
 
-  if ! echo "$PKG" | grep /^https:/ >/dev/null ; then
+_yum_not_installed() {
+  if rpm -q "$1" >/dev/null; then
+    return 1 # already installed
+  else
+    return 0 # not installed
+  fi
+}
+
+_yum_no_repo() {
+  # CentOS 7 has yum 3.4.3: no --enabled option, output is "cernvm/7/x86_64..."
+  # CentOS Stream 8 has yum 4.4.2: has --enabled option, output is "cernvm "
+  #
+  # So use old "enabled" argument instead of --enabled option and look for
+  # slash or space after the repo name.
+
+  if $YUM repolist enabled | grep -q "^$1[/ ]"; then
+    return 1 # has enabled repo
+  else
+    return 0 # no enabled repo
+  fi
+}
+
+_yum_install_repo() {
+  # Install the CernVM-FS YUM repository (if needed)
+  local REPO_NAME="$1"
+  local URL="$2"
+
+  if _yum_no_repo "$REPO_NAME"; then
+    # Repository not installed
+
+    _yum_install "$URL"
+
+    if _yum_no_repo "$REPO_NAME"; then
+      echo "$EXE: internal error: $URL did not install repo \"$REPO_NAME\"" >&2
+      exit 3
+    fi
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: repository already installed: $REPO_NAME"
+    fi
+  fi
+}
+
+_yum_install() {
+  local PKG="$1"
+
+  local PKG_NAME=
+  if ! echo "$PKG" | grep -q /^https:/; then
     # Value is a URL: extract package name from it
     PKG_NAME=$(echo "$PKG" | sed 's/^.*\///') # remove everything up to last /
     PKG_NAME=$(echo "$PKG_NAME" | sed 's/\.rpm$//') # remove .rpm
@@ -213,54 +274,145 @@ _yum_install() {
   if ! rpm -q $PKG_NAME >/dev/null ; then
     # Not already installed
 
-    if [ -n "$VERBOSE" ]; then
-      echo "$EXE: yum install: $PKG"
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: $YUM install: $PKG"
     fi
 
-    if ! yum install -y $PKG >$LOG 2>&1; then
+    if ! $YUM install -y $PKG >$LOG 2>&1; then
       cat $LOG
       rm $LOG
-      echo "$EXE: error: yum install: $PKG failed" >&2
+      echo "$EXE: error: $YUM install: $PKG failed" >&2
       exit 1
     fi
     rm $LOG
 
   else
-    if [ -n "$VERBOSE" ]; then
+    if [ -z "$QUIET" ]; then
       echo "$EXE: package already installed: $PKG"
     fi
   fi
 }
 
 #----------------
+# Debian functions
 
-if which yum >/dev/null; then
-  # Installing for Fedora based systems
+_dpkg_not_installed() {
+  if dpkg-query -s "$1" >/dev/null 2>&1; then
+    return 1 # already installed
+  else
+    return 0 # not installed
+  fi
+}
 
-  if ! rpm -q cvmfs >/dev/null || ! rpm -q cvmfs-server >/dev/null ; then
-    # Need to install CVMFS packages, which first needs cvmfs-release-latest
+_dpkg_download_and_install() {
+  # Download a Debian file from a URL and install it.
+  local PKG_NAME="$1"
+  local URL="$2"
 
-    # Setup CernVM-FS YUM repository (if needed)
+  if _dpkg_not_installed "$PKG_NAME"; then
+    # Download it
 
-    EXPECTING='/etc/yum.repos.d/cernvm.repo'
-    if [ ! -e "$EXPECTING" ]; then
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: downloading $URL"
+    fi
 
-      _yum_install https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
+    DEB_FILE="/tmp/$(basename "$URL").$$"
 
-      if [ ! -e "$EXPECTING" ]; then
-        # The expected file was not installed.
-        # This means the above test for determining if the YUM repository
-        # has been installed or not needs to be changed.
-        echo "$EXE: internal error: file not found: $EXPECTING" >&2
-        exit 3
-      fi
-    fi # if [ ! -e "$EXPECTING" ]
+    if ! wget --quiet -O "$DEB_FILE" $URL; then
+      rm -f "$DEB_FILE"
+      echo "$EXE: error: could not download: $URL" >&2
+      exit 1
+    fi
+
+    # Install it
+
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: dpkg installing download file"
+    fi
+
+    if ! dpkg --install "$DEB_FILE" >$LOG 2>&1; then
+      cat $LOG
+      rm $LOG
+      echo "$EXE: error: dpkg install failed" >&2
+      exit 1
+    fi
+
+    rm -f "$DEB_FILE"
+
+    if _dpkg_not_installed "$PKG_NAME"; then
+      # The package from the URL did not install the expected package
+      echo "$EXE: internal error: $URL did not install $PKG_NAME" >&2
+      exit 3
+    fi
+
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: repository already installed: $REPO_NAME"
+    fi
+  fi
+}
+
+_apt_get_update() {
+  if [ -z "$QUIET" ]; then
+    echo "$EXE: apt-get update"
+  fi
+
+  if ! apt-get update >$LOG 2>&1; then
+    cat $LOG
+    rm $LOG
+    echo "$EXE: error: apt-get update failed" >&2
+    exit 1
+  fi
+}
+
+_apt_get_install() {
+  local PKG="$1"
+
+  if _dpkg_not_installed "$PKG" ; then
+    # Not already installed: install it
+
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: apt-get install $PKG"
+    fi
+
+    if ! apt-get install -y "$PKG" >$LOG 2>&1; then
+      cat $LOG
+      rm $LOG
+      echo "$EXE: error: apt-get install cvmfs failed" >&2
+      exit 1
+    fi
+    rm $LOG
+
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: package already installed: $PKG"
+    fi
+  fi
+}
+
+#----------------
+# Install for either Fedora or Debian based distributions
+
+YUM=yum
+if which dnf >/dev/null 2>&1; then
+  YUM=dnf
+fi
+
+if which $YUM >/dev/null 2>&1; then
+  # Installing for Fedora based distributions
+
+  if _yum_not_installed 'cvmfs' || _yum_not_installed 'cvmfs-server' ; then
+
+    # Get cvmfs-release-latest repo
+
+    _yum_install_repo 'cernvm' \
+      https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
 
     # Installing cvmfs
 
     _yum_install cvmfs
 
-    # Installing cvmfs-server
+    # Installing dependencies that cvmfs-server requires
 
     if ! rpm -q jq >/dev/null && ! rpm -q epel-release >/dev/null ; then
       # neither jq nor epel-release (where jq comes from) is installed
@@ -268,26 +420,56 @@ if which yum >/dev/null; then
       # cvmfs-server depends on "jq" (command-line JSON processor)
       # which is already install by default on CentOS 8, but for
       # CentOS 7 it needs to come from EPEL.
-
       _yum_install epel-release
     fi
 
+    # Installing cvmfs-server
+
     _yum_install cvmfs-server
   else
-    if [ -n "$VERBOSE" ]; then
+    if [ -z "$QUIET" ]; then
       echo "$EXE: package already installed: cvmfs"
       echo "$EXE: package already installed: cvmfs-server"
     fi
   fi
 
-elif which apt-get >/dev/null; then
-  # Installing for Debian based systems
+  # Apache Web Server (Note: was installed as a dependency of cvmfs-server)
 
-  echo "$EXE: Debian/Ubuntu not supported yet: please use CentOS" >&2
-  exit 3
+  APACHE_SERVICE=httpd.service
+  APACHE_CONFIG=/etc/httpd/conf/httpd.conf
+
+elif which apt-get >/dev/null 2>&1; then
+  # Installing for Debian based distributions
+
+  if _dpkg_not_installed 'cvmfs' || _dpkg_not_installed 'cvmfs-server'; then
+
+    # Get cvmfs-releast-latest-all repo
+
+    _dpkg_download_and_install 'cvmfs-release' \
+      https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest_all.deb
+
+    # Update and install cvmfs and cvmfs-server
+
+    _apt_get_update
+
+    _apt_get_install cvmfs
+    _apt_get_install cvmfs-server
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: package already installed: cvmfs"
+      echo "$EXE: package already installed: cvmfs-server"
+    fi
+  fi
+
+  # Apache Web Server
+
+  _apt_get_install apache2  # Apache Web Server not installed by cvmfs-server
+
+  APACHE_SERVICE=apache2.service
+  APACHE_CONFIG=/etc/apache2/apache2.conf
 
 else
-  echo "$EXE: unsupported system: no yum or apt-get" >&2
+  echo "$EXE: unsupported distribution: no apt-get, yum or dnf" >&2
   exit 3
 fi
 
@@ -295,9 +477,8 @@ fi
 # Configure Apache Web Server
 
 # Set the ServerName (otherwise an error appears in the httpd logs)
-
-# sed -i "s/^#ServerName .*/ServerName $SERVERNAME:80/" \
-#   /etc/httpd/conf/httpd.conf
+# TODO: does not work on Debian systems, since ServerName is not in the file.
+# sed -i "s/^#ServerName .*/ServerName $SERVERNAME:80/" "$APACHE_CONFIG"
 
 cat >/var/www/html/index.html <<EOF
 <!DOCTYPE html>
@@ -335,17 +516,17 @@ EOF
 #----------------------------------------------------------------
 # Run the Apache Web Server
 
-if [ -n "$VERBOSE" ]; then
-  echo "$EXE: restarting and enabling httpd.service"
+if [ -z "$QUIET" ]; then
+  echo "$EXE: restarting and enabling $APACHE_SERVICE"
 fi
 
 # Note: in case it was already running, use restart instead of start.
-if ! sudo systemctl restart httpd.service; then
+if ! sudo systemctl restart $APACHE_SERVICE; then
   echo "$EXE: error: httpd restart failed" >&2
   exit 1
 fi
 
-if ! systemctl enable httpd.service 2>/dev/null; then
+if ! systemctl enable $APACHE_SERVICE 2>/dev/null; then
   echo "$EXE: error: httpd enable failed" >&2
   exit 1
 fi
@@ -363,7 +544,7 @@ for FULLNAME in $REPO_IDS; do
   if [ ! -e "/srv/cvmfs/$FULLNAME" ] ; then
     # Repository does not exist: create it
 
-    if [ -n "$VERBOSE" ]; then
+    if [ -z "$QUIET" ]; then
       echo "$EXE: cvmfs_server mkfs: $FULLNAME"
     fi
 
@@ -381,7 +562,7 @@ for FULLNAME in $REPO_IDS; do
 
     # Output information needed to configure clients
 
-    if [ -n "$VERBOSE" ]; then
+    if [ -z "$QUIET" ]; then
       echo "$EXE: public key: /etc/cvmfs/keys/$FULLNAME.pub"
     fi
     if [ -n "$VERY_VERBOSE" ]; then
@@ -410,7 +591,7 @@ FILE_WAS_CREATED=
 if [ ! -e "$FILE" ]; then
   # Create cron job file preamble
 
-  if [ -n "$VERBOSE" ]; then
+  if [ -z "$QUIET" ]; then
     echo "$EXE: creating cron jobs file: $FILE"
   fi
 
@@ -435,7 +616,7 @@ if [ -n "$CREATED_FULLNAMES" ]; then
   echo "# Added [$(date '+%F %T %Z')]:" >> $FILE
 
   for FULLNAME in $CREATED_FULLNAMES; do
-    if [ -n "$VERBOSE" ]; then
+    if [ -z "$QUIET" ]; then
       echo "$EXE: adding cron job in $FILE to resign whitelist for $FULLNAME"
     fi
 
@@ -452,8 +633,8 @@ fi
 #----------------------------------------------------------------
 # Success
 
-if [ -n "$VERBOSE" ]; then
-  echo "$EXE: ok"
+if [ -z "$QUIET" ]; then
+  echo "$EXE: done"
 fi
 
 exit 0

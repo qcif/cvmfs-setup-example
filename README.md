@@ -1,4 +1,4 @@
-# CernVM-FS setup for demonstration CVMFS repositories
+# CernVM-FS setup scripts for creating example CernVM-FS hosts
 
 Scripts for setting up an example CernVM-FS system.  These scripts can
 be used to deploy the following servers:
@@ -46,20 +46,19 @@ improved redundancy and performance.
 
 First, copy the four scripts to their respective hosts.
 
+When running the scripts, please be patient: they take several minutes
+to run, because they need to download and install several software
+packages.
+
 Note: all the scripts support the `--help` option, to print out a
 brief description of the available options.
-
-The `--verbose` option is used so the scripts will print out what they
-are doing. Otherwise, no output is produced unless an error
-occurs. The scripts take several minutes to run, so it can be
-reassuring to see some output as it runs.
 
 ### Stratum 0
 
 Create the Stratum 0 central server by running:
 
 ```sh
-[stratum-0]$ sudo ./cvmfs-stratum-0-setup.sh -v data.example.org
+[stratum-0]$ sudo ./cvmfs-stratum-0-setup.sh data.example.org
 ```
 
 Where the identifiers used for the repositories are provided as
@@ -77,7 +76,7 @@ Stratum 0 host.
 Create a Stratum 1 replica by running:
 
 ```sh
-[stratum-1]$ sudo ./cvmfs-stratum-1-setup.sh -v \
+[stratum-1]$ sudo ./cvmfs-stratum-1-setup.sh \
   --stratum-0 10.0.0.1 \
   --servername 10.1.1.1 \
   --refresh 2 \
@@ -106,7 +105,7 @@ Stratum 1 host(s).
 Create a proxy by running:
 
 ```sh
-[proxy]$ sudo ./cvmfs-proxy-setup.sh -v --stratum-1 10.1.1.1 10.3.3.0/24
+[proxy]$ sudo ./cvmfs-proxy-setup.sh --stratum-1 10.1.1.1 10.3.3.0/24
 ```
 
 The proxy only needs to know about the Stratum 1 replicas and which
@@ -125,7 +124,7 @@ script.
 Create a client by running:
 
 ```sh
-[client]$ sudo ./cvmfs-client-setup.sh -v \
+[client]$ sudo ./cvmfs-client-setup.sh \
   --stratum-1 10.1.1.1 --proxy 10.2.2.2 --no-geo-api data.example.org.pub
 ```
 
@@ -198,17 +197,16 @@ the client, instead of manually waiting for it to change.
 ### Supported distributions
 
 The scripts only work on Linux, since they use the _yum_ or _apt-get_
-package managers to install the CVMFS software.
+package managers to install the CernVM-FS software.
 
-All of the setup scripts have been tested on:
+The setup scripts have been tested on:
 
 - CentOS 7
 - CentOS 8
 - CentOS Stream 8
-
-The proxy and client setup scripts have also been tested on:
-
 - Ubuntu 20.04
+- Ubuntu 20.10
+- Ubuntu 21.04
 
 ### Summary of firewall and routing requirements
 
@@ -221,10 +219,17 @@ The proxy hosts must allow access to its port 3128 from the clients.
 
 ## Bonus features
 
+### Quiet mode
+
+The scripts normally output a brief description of what it is
+installing or configuring. If the `--quiet` option is specified (and
+`--verbose` is not specified), no output will be produce unless there
+is an error.
+
 ### Very verbose mode
 
 The output from the _cvmfs_server_ command will be printed out if the
-scripts are run in very verbose mode: by specifying the `-v` option
+scripts are run in _very verbose_ mode: by specifying the `-v` option
 twice. It is only useful for the Stratum 0 and Stratum 1 scripts.
 
 ### Extended help
@@ -242,6 +247,13 @@ a reminder of some useful/related CernVM-FS commands.
 - Only one organisation is supported. But multiple repositories under
   that organisation are possible.
 
+## Troubleshooting
+
+### GPG check failed
+
+Try running the same setup script again. It seems to work the second
+time it is run.
+
 ## Acknowledgements
 
 This work is supported by the Australian BioCommons which is enabled
@@ -249,4 +261,4 @@ by NCRIS via Bioplatforms Australia funding.
 
 ## See also
 
-- [CVMFS documentation](https://cvmfs.readthedocs.io/en/stable/)
+- [CernVM-FS documentation](https://cvmfs.readthedocs.io/en/stable/)

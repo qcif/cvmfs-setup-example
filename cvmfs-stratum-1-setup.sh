@@ -15,7 +15,7 @@
 #================================================================
 
 PROGRAM='cvmfs-stratum-1-setup'
-VERSION='1.0.0'
+VERSION='1.1.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -66,6 +66,8 @@ PROGRAM_INFO="Created by $PROGRAM $VERSION [$(date '+%F %T %Z')]"
 # Better to abort than to continue running when something went wrong.
 set -e
 
+set -u # fail on attempts to expand undefined environment variables
+
 #----------------------------------------------------------------
 # Utility functions
 
@@ -92,7 +94,7 @@ _org_id() {
 _canonicalise_repo() {
   ARG="$1"
 
-  if echo "$ARG" | grep ':' >/dev/null; then
+  if echo "$ARG" | grep -q ':'; then
     # Has colon: value should be repository_id:filename (split on first colon)
     REPO_ID=$(echo "$ARG" | sed 's/:.*$'// )
     FILENAME=$(echo "$ARG" | sed 's/^[^:]*://' )
@@ -129,6 +131,7 @@ REPO_USER="$DEFAULT_REPO_USER"
 SERVERNAME="$DEFAULT_SERVERNAME"
 REFRESH_MINUTES=$DEFAULT_REFRESH_MINUTES
 MEM_CACHE_SIZE_MB=$DEFAULT_MEM_CACHE_SIZE_MB
+QUIET=
 VERBOSE=
 VERY_VERBOSE=
 SHOW_VERSION=
@@ -186,6 +189,10 @@ do
       MEM_CACHE_SIZE_MB="$2"
       shift; shift
       ;;
+    -q|--quiet)
+      QUIET=yes
+      shift
+      ;;
     -v|--verbose)
       if [ -z "$VERBOSE" ]; then
         VERBOSE=yes
@@ -226,6 +233,7 @@ Options:
   -u | --user ID          repository owner account (default: $DEFAULT_REPO_USER)
   -r | --refresh MIN      minutes step for replica snapshots (default: $DEFAULT_REFRESH_MINUTES)
   -m | --mem-cache NUM    size of memory cache in MiB (default: $DEFAULT_MEM_CACHE_SIZE_MB)
+  -q | --quiet            output nothng unless an error occurs
   -v | --verbose          output extra information when running
        --version          display version information and exit
   -h | --help             display this help and exit
@@ -264,7 +272,7 @@ if [ -z "$REPOS" ]; then
   exit 2
 fi
 
-if ! echo "$REFRESH_MINUTES" | grep -E '^[0-9]+$' >/dev/null ; then
+if ! echo "$REFRESH_MINUTES" | grep -qE '^[0-9]+$'; then
   echo "$EXE: usage error: refresh minute step: invalid positive integer: \"$REFRESH_MINUTES\"" >&2
   exit 2
 fi
@@ -279,7 +287,7 @@ if ! id -u "$REPO_USER" >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! echo "$MEM_CACHE_SIZE_MB" | grep -E '^[0-9]+$' >/dev/null ; then
+if ! echo "$MEM_CACHE_SIZE_MB" | grep -qE '^[0-9]+$'; then
   echo "$EXE: usage error: memory cache: invalid number: \"$MEM_CACHE_SIZE_MB\"" >&2
   exit 2
 fi
@@ -343,11 +351,17 @@ else
   DISTRO=unknown
 fi
 
-if echo "$DISTRO" | grep '^CentOS Linux release 7' > /dev/null; then
+if echo "$DISTRO" | grep -q '^CentOS Linux release 7'; then
   :
-elif echo "$DISTRO" | grep '^CentOS Linux release 8' > /dev/null; then
+elif echo "$DISTRO" | grep -q '^CentOS Linux release 8'; then
   :
-elif echo "$DISTRO" | grep '^CentOS Stream release 8' > /dev/null; then
+elif echo "$DISTRO" | grep -q '^CentOS Stream release 8'; then
+  :
+elif [ "$DISTRO" = 'Ubuntu 21.04' ]; then
+  :
+elif [ "$DISTRO" = 'Ubuntu 20.10' ]; then
+  :
+elif [ "$DISTRO" = 'Ubuntu 20.04' ]; then
   :
 else
   # Add additional elif-statements for tested systems
@@ -371,16 +385,63 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 #----------------------------------------------------------------
-# Install CernVM-FS client and server, squid and mod_wsgi
+# Install (cvmfs, cvmfs-server, squid and mod_wsgi)
 
 # Use LOG file to suppress apt-get messages, only show on error
 # Unfortunately, "apt-get -q" and "yum install -q" still produces output.
 LOG="/tmp/${PROGRAM}.$$"
 
-_yum_install() {
-  PKG="$1"
+#----------------
+# Fedora functions
 
-  if ! echo "$PKG" | grep /^https:/ >/dev/null ; then
+_yum_not_installed() {
+  if rpm -q "$1" >/dev/null; then
+    return 1 # already installed
+  else
+    return 0 # not installed
+  fi
+}
+
+_yum_no_repo() {
+  # CentOS 7 has yum 3.4.3: no --enabled option, output is "cernvm/7/x86_64..."
+  # CentOS Stream 8 has yum 4.4.2: has --enabled option, output is "cernvm "
+  #
+  # So use old "enabled" argument instead of --enabled option and look for
+  # slash or space after the repo name.
+
+  if $YUM repolist enabled | grep -q "^$1[/ ]"; then
+    return 1 # has enabled repo
+  else
+    return 0 # no enabled repo
+  fi
+}
+
+_yum_install_repo() {
+  # Install the CernVM-FS YUM repository (if needed)
+  local REPO_NAME="$1"
+  local URL="$2"
+
+  if _yum_no_repo "$REPO_NAME"; then
+    # Repository not installed
+
+    _yum_install "$URL"
+
+    if _yum_no_repo "$REPO_NAME"; then
+      echo "$EXE: internal error: $URL did not install repo \"$REPO_NAME\"" >&2
+      exit 3
+    fi
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: repository already installed: $REPO_NAME"
+    fi
+  fi
+}
+
+_yum_install() {
+  local PKG="$1"
+
+  local PKG_NAME=
+  if ! echo "$PKG" | grep -q /^https:/; then
     # Value is a URL: extract package name from it
     PKG_NAME=$(echo "$PKG" | sed 's/^.*\///') # remove everything up to last /
     PKG_NAME=$(echo "$PKG_NAME" | sed 's/\.rpm$//') # remove .rpm
@@ -392,73 +453,168 @@ _yum_install() {
   if ! rpm -q $PKG_NAME >/dev/null ; then
     # Not already installed
 
-    if [ -n "$VERBOSE" ]; then
-      echo "$EXE: yum install: $PKG"
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: $YUM install: $PKG"
     fi
 
-    if ! yum install -y $PKG >$LOG 2>&1; then
+    if ! $YUM install -y $PKG >$LOG 2>&1; then
       cat $LOG
       rm $LOG
-      echo "$EXE: error: yum install: $PKG failed" >&2
+      echo "$EXE: error: $YUM install: $PKG failed" >&2
       exit 1
     fi
     rm $LOG
 
   else
-    if [ -n "$VERBOSE" ]; then
+    if [ -z "$QUIET" ]; then
       echo "$EXE: package already installed: $PKG"
     fi
   fi
 }
 
 #----------------
+# Debian functions
 
-if which yum >/dev/null; then
-  # Installing for Fedora based systems
+_dpkg_not_installed() {
+  if dpkg-query -s "$1" >/dev/null 2>&1; then
+    return 1 # already installed
+  else
+    return 0 # not installed
+  fi
+}
 
-  if ! rpm -q cvmfs >/dev/null || ! rpm -q cvmfs-server >/dev/null ; then
-    # Need to install CVMFS packages, which first needs cvmfs-release-latest
+_dpkg_download_and_install() {
+  # Download a Debian file from a URL and install it.
+  local PKG_NAME="$1"
+  local URL="$2"
 
-    # Setup CernVM-FS YUM repository (if needed)
+  if _dpkg_not_installed "$PKG_NAME"; then
+    # Download it
 
-    EXPECTING='/etc/yum.repos.d/cernvm.repo'
-    if [ ! -e "$EXPECTING" ]; then
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: downloading $URL"
+    fi
 
-      _yum_install https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
+    DEB_FILE="/tmp/$(basename "$URL").$$"
 
-      if [ ! -e "$EXPECTING" ]; then
-        # The expected file was not installed.
-        # This means the above test for determining if the YUM repository
-        # has been installed or not needs to be changed.
-        echo "$EXE: internal error: file not found: $EXPECTING" >&2
-        exit 3
-      fi
-    fi # if [ ! -e "$EXPECTING" ]
+    if ! wget --quiet -O "$DEB_FILE" $URL; then
+      rm -f "$DEB_FILE"
+      echo "$EXE: error: could not download: $URL" >&2
+      exit 1
+    fi
+
+    # Install it
+
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: dpkg installing download file"
+    fi
+
+    if ! dpkg --install "$DEB_FILE" >$LOG 2>&1; then
+      cat $LOG
+      rm $LOG
+      echo "$EXE: error: dpkg install failed" >&2
+      exit 1
+    fi
+
+    rm -f "$DEB_FILE"
+
+    if _dpkg_not_installed "$PKG_NAME"; then
+      # The package from the URL did not install the expected package
+      echo "$EXE: internal error: $URL did not install $PKG_NAME" >&2
+      exit 3
+    fi
+
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: repository already installed: $REPO_NAME"
+    fi
+  fi
+}
+
+_apt_get_update() {
+  if [ -z "$QUIET" ]; then
+    echo "$EXE: apt-get update"
+  fi
+
+  if ! apt-get update >$LOG 2>&1; then
+    cat $LOG
+    rm $LOG
+    echo "$EXE: error: apt-get update failed" >&2
+    exit 1
+  fi
+}
+
+_apt_get_install() {
+  local PKG="$1"
+
+  if _dpkg_not_installed "$PKG" ; then
+    # Not already installed: install it
+
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: apt-get install $PKG"
+    fi
+
+    if ! apt-get install -y "$PKG" >$LOG 2>&1; then
+      cat $LOG
+      rm $LOG
+      echo "$EXE: error: apt-get install cvmfs failed" >&2
+      exit 1
+    fi
+    rm $LOG
+
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: package already installed: $PKG"
+    fi
+  fi
+}
+
+#----------------
+# Install for either Fedora or Debian based distributions
+
+YUM=yum
+if which dnf >/dev/null 2>&1; then
+  YUM=dnf
+fi
+
+if which $YUM >/dev/null 2>&1; then
+  # Installing for Fedora based distributions
+
+  if _yum_not_installed 'cvmfs' || _yum_not_installed 'cvmfs-server' ; then
+
+    # Get cvmfs-release-latest repo
+
+    _yum_install_repo 'cernvm' \
+      https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
 
     # Installing cvmfs
 
     _yum_install cvmfs
 
-    # Installing cvmfs-server
+    # Installing dependencies that cvmfs-server requires
 
     if ! rpm -q jq >/dev/null && ! rpm -q epel-release >/dev/null ; then
-      # neither "jq" nor "epel-release" (where "jq" comes from) is installed
+      # neither jq nor epel-release (where jq comes from) is installed
       #
       # cvmfs-server depends on "jq" (command-line JSON processor)
       # which is already install by default on CentOS 8, but for
-      # CentOS 7 it needs to come from EPEL, so install "epel-release"
-      # before trying to install "cvmfs-server" (so it can install "jq").
-
+      # CentOS 7 it needs to come from EPEL.
       _yum_install epel-release
     fi
 
+    # Installing cvmfs-server
+
     _yum_install cvmfs-server
   else
-    if [ -n "$VERBOSE" ]; then
+    if [ -z "$QUIET" ]; then
       echo "$EXE: package already installed: cvmfs"
       echo "$EXE: package already installed: cvmfs-server"
     fi
   fi
+
+  # Apache Web Server (Note: was installed as a dependency of cvmfs-server)
+
+  APACHE_SERVICE=httpd.service
 
   # Installing Squid
 
@@ -472,7 +628,7 @@ if which yum >/dev/null; then
   # CentOS 8: mod_ssl and python_mod_wsgi are not installed by default
   #           but there is no mod_wsgi package to install!
 
-  if echo "$DISTRO" | grep '^CentOS Linux release 7' > /dev/null; then
+  if echo "$DISTRO" | grep -q '^CentOS Linux release 7'; then
     _yum_install mod_wsgi
   fi
 
@@ -482,14 +638,48 @@ if which yum >/dev/null; then
     fi
   done
 
-elif which apt-get >/dev/null; then
-  # Installing for Debian based systems
+elif which apt-get >/dev/null 2>&1; then
+  # Installing for Debian based distributions
 
-  echo "$EXE: Debian/Ubuntu not supported yet: please use CentOS" >&2
-  exit 3
+  if _dpkg_not_installed 'cvmfs' || _dpkg_not_installed 'cvmfs-server'; then
+
+    # Get cvmfs-releast-latest-all repo
+ 
+    _dpkg_download_and_install 'cvmfs-release' \
+      https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest_all.deb
+
+    # Update and install cvmfs and cvmfs-server
+
+    _apt_get_update
+
+    _apt_get_install cvmfs
+    _apt_get_install cvmfs-server
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: package already installed: cvmfs"
+      echo "$EXE: package already installed: cvmfs-server"
+    fi
+  fi
+
+  # Apache Web Server
+
+  _apt_get_install apache2  # Apache Web Server not installed by cvmfs-server
+
+  APACHE_SERVICE=apache2.service
+
+  # Squid
+
+  _apt_get_install squid
+
+  # Installing other packages
+  #
+  # WSGI is needed by CernVM-FS to query the Geo API.
+
+  # _apt_get_install libapache2-mod-wsgi
+  _apt_get_install libapache2-mod-wsgi-py3
 
 else
-  echo "$EXE: unsupported system: no yum or apt-get" >&2
+  echo "$EXE: unsupported distribution: no apt-get, yum or dnf" >&2
   exit 3
 fi
 
@@ -502,7 +692,7 @@ SQUID_CONF=/etc/squid/squid.conf
 #   mv "$SQUID_CONF" "${SQUID_CONF}.orig" # backup original config file
 # fi
 
-if [ -n "$VERBOSE" ]; then
+if [ -z "$QUIET" ]; then
   echo "$EXE: configuring reverse proxy: $SQUID_CONF"
 fi
 
@@ -545,9 +735,8 @@ EOF
 # Configure Apache Web Server
 
 # Set the ServerName (otherwise an error appears in the httpd logs)
-
-sed -i "s/^#ServerName .*/ServerName $SERVERNAME:80/" \
-    /etc/httpd/conf/httpd.conf
+# TODO: does not work on Debian systems, since ServerName is not in the file.
+# sed -i "s/^#ServerName .*/ServerName $SERVERNAME:80/"  "$APACHE_CONFIG"
 
 cat >/var/www/html/index.html <<EOF
 <!DOCTYPE html>
@@ -585,17 +774,17 @@ EOF
 #----------------------------------------------------------------
 # Run the Apache Web Server
 
-if [ -n "$VERBOSE" ]; then
-  echo "$EXE: restarting and enabling httpd.service"
+if [ -z "$QUIET" ]; then
+  echo "$EXE: restarting and enabling $APACHE_SERVICE"
 fi
 
 # Note: in case it was already running, use restart instead of start.
-if ! sudo systemctl restart httpd.service; then
+if ! sudo systemctl restart $APACHE_SERVICE; then
   echo "$EXE: error: httpd restart failed" >&2
   exit 1
 fi
 
-if ! systemctl enable httpd.service 2>/dev/null; then
+if ! systemctl enable $APACHE_SERVICE 2>/dev/null; then
   echo "$EXE: error: httpd enable failed" >&2
   exit 1
 fi
@@ -603,7 +792,7 @@ fi
 #----------------------------------------------------------------
 # Run the Squid reverse proxy
 
-if [ -n "$VERBOSE" ]; then
+if [ -z "$QUIET" ]; then
   echo "$EXE: restarting and enabling squid.service"
 fi
 
@@ -631,7 +820,7 @@ chmod 600 $GEO_KEY_FILE # restrict access, since it may contain the license key
 if [ -n "$CVMFS_GEO_LICENSE_KEY" ]; then
   # License key provided: using Geo API
 
-  if [ -n "$VERBOSE" ]; then
+  if [ -z "$QUIET" ]; then
     echo "$EXE: Geo API: configured key: $GEO_KEY_FILE"
   fi
 
@@ -639,7 +828,7 @@ if [ -n "$CVMFS_GEO_LICENSE_KEY" ]; then
 else
   # Not using Geo API
 
-  if [ -n "$VERBOSE" ]; then
+  if [ -z "$QUIET" ]; then
     echo "$EXE: Geo API: disabled: $GEO_KEY_FILE"
   fi
 
@@ -670,7 +859,7 @@ for REPO in $REPOS; do
 
   # Add the replica
 
-  if [ -n "$VERBOSE" ]; then
+  if [ -z "$QUIET" ]; then
     echo "$EXE: add-replica: $FULLNAME from $STRATUM_0_HOST"
   fi
 
@@ -698,7 +887,7 @@ for REPO in $REPOS; do
   # But that means the replica will not be available until after the first
   # run of the cron job.
 
-  if [ -n "$VERBOSE" ]; then
+  if [ -z "$QUIET" ]; then
     echo "$EXE: snapshot: $FULLNAME"
   fi
 
@@ -742,8 +931,8 @@ EOF
 #----------------------------------------------------------------
 # Success
 
-if [ -n "$VERBOSE" ]; then
-  echo "$EXE: ok"
+if [ -z "$QUIET" ]; then
+  echo "$EXE: done"
 fi
 
 exit 0

@@ -28,7 +28,7 @@
 #================================================================
 
 PROGRAM='cvmfs-proxy-setup'
-VERSION='1.0.0'
+VERSION='1.1.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -58,6 +58,8 @@ PROGRAM_INFO="Created by $PROGRAM $VERSION [$(date '+%F %T %Z')]"
 # Better to abort than to continue running when something went wrong.
 set -e
 
+set -u # fail on attempts to expand undefined environment variables
+
 #----------------------------------------------------------------
 # Command line arguments
 # Note: parsing does not support combining single letter options (e.g. "-vh")
@@ -67,6 +69,7 @@ CLIENTS=
 PROXY_PORT=$DEFAULT_PROXY_PORT
 DISK_CACHE_SIZE_MB=$DEFAULT_DISK_CACHE_SIZE_MB
 MEM_CACHE_SIZE_MB=$DEFAULT_MEM_CACHE_SIZE_MB
+QUIET=
 VERBOSE=
 SHOW_VERSION=
 SHOW_HELP=
@@ -106,6 +109,10 @@ do
       MEM_CACHE_SIZE_MB="$2"
       shift; shift
       ;;
+    -q|--quiet)
+      QUIET=yes
+      shift
+      ;;
     -v|--verbose)
       VERBOSE=yes
       shift
@@ -125,11 +132,11 @@ do
     *)
       # Argument
 
-      if echo "$1" | grep '^http://' >/dev/null; then
+      if echo "$1" | grep -q '^http://'; then
         echo "$EXE: usage error: expecting an address, not a URL: \"$1\"" >&2
         exit 2
       fi
-      if echo "$1" | grep '^https://' >/dev/null; then
+      if echo "$1" | grep -q '^https://'; then
         echo "$EXE: usage error: expecting an address, not a URL: \"$1\"" >&2
         exit 2
       fi
@@ -143,8 +150,9 @@ done
 
 if [ -n "$SHOW_HELP" ]; then
   EXAMPLE_CLIENTS="192.168.0.0/16 172.16.0.0/12"
-  if which ip >/dev/null && ip addr | grep 203.101.239.255 >/dev/null ; then
-    EXAMPLE_CLIENTS="203.101.224.0/20" # custom example for QRIScloud
+  if which ip >/dev/null && ip addr | grep -q 203.101.239.255; then
+    # Special example if running in a QRIScloud VM
+    EXAMPLE_CLIENTS="203.101.224.0/20  # Allows all hosts in QRIScloud to use this proxy"
   fi
 
   cat <<EOF
@@ -154,6 +162,7 @@ Options:
   -p | --port NUM        proxy port (default: $DEFAULT_PROXY_PORT)
   -d | --disk-cache NUM  size of disk cache in MiB (default: $DEFAULT_DISK_CACHE_SIZE_MB)
   -m | --mem-cache NUM   size of memory cache in MiB (default: $DEFAULT_MEM_CACHE_SIZE_MB)
+  -q | --quiet           output nothng unless an error occurs
   -v | --verbose         output extra information when running
        --version         display version information and exit
   -h | --help            display this help and exit
@@ -178,7 +187,7 @@ if [ -z "$STRATUM_ONE_HOSTS" ]; then
   exit 2
 fi
 
-if ! echo "$PROXY_PORT" | grep -E '^[0-9]+$' >/dev/null ; then
+if ! echo "$PROXY_PORT" | grep -qE '^[0-9]+$'; then
   echo "$EXE: usage error: invalid number: \"$PROXY_PORT\"" >&2
   exit 2
 fi
@@ -187,7 +196,7 @@ if [ "$PROXY_PORT" -lt 1 ] || [ "$PROXY_PORT" -gt 65535 ]; then
   exit 2
 fi
 
-if ! echo "$DISK_CACHE_SIZE_MB" | grep -E '^[0-9]+$' >/dev/null ; then
+if ! echo "$DISK_CACHE_SIZE_MB" | grep -qE '^[0-9]+$'; then
   echo "$EXE: usage error: disk cache: invalid number: \"$DISK_CACHE_SIZE_MB\"" >&2
   exit 2
 fi
@@ -196,7 +205,7 @@ if [ "$DISK_CACHE_SIZE_MB" -lt $MIN_DISK_CACHE_SIZE_MB ]; then
   exit 2
 fi
 
-if ! echo "$MEM_CACHE_SIZE_MB" | grep -E '^[0-9]+$' >/dev/null ; then
+if ! echo "$MEM_CACHE_SIZE_MB" | grep -qE '^[0-9]+$'; then
   echo "$EXE: usage error: memory cache: invalid number: \"$MEM_CACHE_SIZE_MB\"" >&2
   exit 2
 fi
@@ -226,11 +235,15 @@ else
   DISTRO=unknown
 fi
 
-if echo "$DISTRO" | grep '^CentOS Linux release 7' > /dev/null; then
+if echo "$DISTRO" | grep -q '^CentOS Linux release 7'; then
   :
-elif echo "$DISTRO" | grep '^CentOS Linux release 8' > /dev/null; then
+elif echo "$DISTRO" | grep -q '^CentOS Linux release 8'; then
   :
-elif echo "$DISTRO" | grep '^CentOS Stream release 8' > /dev/null; then
+elif echo "$DISTRO" | grep -q '^CentOS Stream release 8'; then
+  :
+elif [ "$DISTRO" = 'Ubuntu 21.04' ]; then
+  :
+elif [ "$DISTRO" = 'Ubuntu 20.10' ]; then
   :
 elif [ "$DISTRO" = 'Ubuntu 20.04' ]; then
   :
@@ -248,16 +261,68 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 #----------------------------------------------------------------
-# Install Squid proxy server
+# Install (Squid proxy server)
+
+# Note: the _yum_no_repo, _yum_install_repo and
+# _dpkg_download_and_install functions below are not used, since a
+# proxy server does not need to install any CernVM-FS packages.  But
+# they are kept for consistency with the other scripts.
 
 # Use LOG file to suppress apt-get messages, only show on error
 # Unfortunately, "apt-get -q" and "yum install -q" still produces output.
 LOG="/tmp/${PROGRAM}.$$"
 
-_yum_install() {
-  PKG="$1"
+#----------------
+# Fedora functions
 
-  if ! echo "$PKG" | grep /^https:/ >/dev/null ; then
+_yum_not_installed() {
+  if rpm -q "$1" >/dev/null; then
+    return 1 # already installed
+  else
+    return 0 # not installed
+  fi
+}
+
+_yum_no_repo() {
+  # CentOS 7 has yum 3.4.3: no --enabled option, output is "cernvm/7/x86_64..."
+  # CentOS Stream 8 has yum 4.4.2: has --enabled option, output is "cernvm "
+  #
+  # So use old "enabled" argument instead of --enabled option and look for
+  # slash or space after the repo name.
+
+  if $YUM repolist enabled | grep -q "^$1[/ ]"; then
+    return 1 # has enabled repo
+  else
+    return 0 # no enabled repo
+  fi
+}
+
+_yum_install_repo() {
+  # Install the CernVM-FS YUM repository (if needed)
+  local REPO_NAME="$1"
+  local URL="$2"
+
+  if _yum_no_repo "$REPO_NAME"; then
+    # Repository not installed
+
+    _yum_install "$URL"
+
+    if _yum_no_repo "$REPO_NAME"; then
+      echo "$EXE: internal error: $URL did not install repo \"$REPO_NAME\"" >&2
+      exit 3
+    fi
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: repository already installed: $REPO_NAME"
+    fi
+  fi
+}
+
+_yum_install() {
+  local PKG="$1"
+
+  local PKG_NAME=
+  if ! echo "$PKG" | grep -q /^https:/; then
     # Value is a URL: extract package name from it
     PKG_NAME=$(echo "$PKG" | sed 's/^.*\///') # remove everything up to last /
     PKG_NAME=$(echo "$PKG_NAME" | sed 's/\.rpm$//') # remove .rpm
@@ -269,62 +334,143 @@ _yum_install() {
   if ! rpm -q $PKG_NAME >/dev/null ; then
     # Not already installed
 
-    if [ -n "$VERBOSE" ]; then
-      echo "$EXE: yum install: $PKG"
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: $YUM install: $PKG"
     fi
 
-    if ! yum install -y $PKG >$LOG 2>&1; then
+    if ! $YUM install -y $PKG >$LOG 2>&1; then
       cat $LOG
       rm $LOG
-      echo "$EXE: error: yum install: $PKG failed" >&2
+      echo "$EXE: error: $YUM install: $PKG failed" >&2
       exit 1
     fi
     rm $LOG
 
   else
-    if [ -n "$VERBOSE" ]; then
+    if [ -z "$QUIET" ]; then
       echo "$EXE: package already installed: $PKG"
     fi
   fi
 }
 
 #----------------
+# Debian functions
 
-if which yum >/dev/null; then
-  # Installing for Fedora based systems
+_dpkg_not_installed() {
+  if dpkg-query -s "$1" >/dev/null 2>&1; then
+    return 1 # already installed
+  else
+    return 0 # not installed
+  fi
+}
 
-  _yum_install squid
+_dpkg_download_and_install() {
+  # Download a Debian file from a URL and install it.
+  local PKG_NAME="$1"
+  local URL="$2"
 
-elif which apt-get >/dev/null; then
-  # Installing for Debian based systems
+  if _dpkg_not_installed "$PKG_NAME"; then
+    # Download it
 
-  if [ -n "$VERBOSE" ]; then
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: downloading $URL"
+    fi
+
+    DEB_FILE="/tmp/$(basename "$URL").$$"
+
+    if ! wget --quiet -O "$DEB_FILE" $URL; then
+      rm -f "$DEB_FILE"
+      echo "$EXE: error: could not download: $URL" >&2
+      exit 1
+    fi
+
+    # Install it
+
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: dpkg installing download file"
+    fi
+
+    if ! dpkg --install "$DEB_FILE" >$LOG 2>&1; then
+      cat $LOG
+      rm $LOG
+      echo "$EXE: error: dpkg install failed" >&2
+      exit 1
+    fi
+
+    rm -f "$DEB_FILE"
+
+    if _dpkg_not_installed "$PKG_NAME"; then
+      # The package from the URL did not install the expected package
+      echo "$EXE: internal error: $URL did not install $PKG_NAME" >&2
+      exit 3
+    fi
+
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: repository already installed: $REPO_NAME"
+    fi
+  fi
+}
+
+_apt_get_update() {
+  if [ -z "$QUIET" ]; then
     echo "$EXE: apt-get update"
   fi
 
   if ! apt-get update >$LOG 2>&1; then
     cat $LOG
     rm $LOG
-    echo "$EXE: error: apt-get update: failed" >&2
+    echo "$EXE: error: apt-get update failed" >&2
     exit 1
   fi
+}
 
-  # Install Squid proxy server
+_apt_get_install() {
+  local PKG="$1"
 
-  if [ -n "$VERBOSE" ]; then
-    echo "$EXE: apt-get install: squid"
-  fi
+  if _dpkg_not_installed "$PKG" ; then
+    # Not already installed: install it
 
-  if ! apt-get install -y squid >$LOG 2>&1; then
-    cat $LOG
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: apt-get install $PKG"
+    fi
+
+    if ! apt-get install -y "$PKG" >$LOG 2>&1; then
+      cat $LOG
+      rm $LOG
+      echo "$EXE: error: apt-get install cvmfs failed" >&2
+      exit 1
+    fi
     rm $LOG
-    echo "$EXE: error: apt-get install: squid failed" >&2
-    exit 1
+
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: package already installed: $PKG"
+    fi
   fi
-  rm $LOG
+}
+
+#----------------
+# Install for either Fedora or Debian based distributions
+
+YUM=yum
+if which dnf >/dev/null 2>&1; then
+  YUM=dnf
+fi
+
+if which $YUM >/dev/null 2>&1; then
+  # Installing for Fedora based distributions
+
+  _yum_install squid
+
+elif which apt-get >/dev/null 2>&1; then
+  # Installing for Debian based distributions
+
+  _apt_get_update
+  _apt_get_install squid
 
 else
-  echo "$EXE: unsupported system: no yum or apt-get" >&2
+  echo "$EXE: unsupported distribution: no apt-get, yum or dnf" >&2
   exit 3
 fi
 
@@ -337,7 +483,7 @@ SQUID_CONF=/etc/squid/squid.conf
 #   mv "$SQUID_CONF" "${SQUID_CONF}.orig" # backup original config file
 # fi
 
-if [ -n "$VERBOSE" ]; then
+if [ -z "$QUIET" ]; then
   echo "$EXE: configuring reverse proxy: $SQUID_CONF"
 fi
 
@@ -409,7 +555,7 @@ fi
 #----------------------------------------------------------------
 # Start Squid and enable it to start when the host boots
 
-if [ -n "$VERBOSE" ]; then
+if [ -z "$QUIET" ]; then
   echo "$EXE: restarting and enabling squid.service"
 fi
 
@@ -427,8 +573,8 @@ fi
 #----------------------------------------------------------------
 # Success
 
-if [ -n "$VERBOSE" ]; then
-  echo "$EXE: ok"
+if [ -z "$QUIET" ]; then
+  echo "$EXE: done"
 fi
 
 #EOF

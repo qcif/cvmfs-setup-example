@@ -10,7 +10,7 @@
 #================================================================
 
 PROGRAM='cvmfs-client-setup'
-VERSION='1.0.0'
+VERSION='1.1.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -39,6 +39,8 @@ PROGRAM_INFO="Created by $PROGRAM $VERSION [$(date '+%F %T %Z')]"
 # Better to abort than to continue running when something went wrong.
 set -e
 
+set -u # fail on attempts to expand undefined environment variables
+
 #----------------------------------------------------------------
 # Utility functions
 
@@ -65,7 +67,7 @@ _org_id() {
 _canonicalise_repo() {
   ARG="$1"
 
-  if echo "$ARG" | grep ':' >/dev/null; then
+  if echo "$ARG" | grep -q ':'; then
     # Has colon: value should be repository_id:filename (split on first colon)
     REPO_ID=$(echo "$ARG" | sed 's/:.*$'// )
     FILENAME=$(echo "$ARG" | sed 's/^[^:]*://' )
@@ -100,6 +102,7 @@ STRATUM_1_HOSTS=
 CVMFS_HTTP_PROXY=
 NO_GEO_API=
 CVMFS_QUOTA_LIMIT_MB=$DEFAULT_CACHE_SIZE_MB
+QUIET=
 VERBOSE=
 VERY_VERBOSE=
 SHOW_VERSION=
@@ -119,16 +122,16 @@ do
         exit 2
       fi
 
-      if echo "$2" | grep '^http://' >/dev/null; then
+      if echo "$2" | grep -q '^http://'; then
         echo "$EXE: usage error: expecting an address, not a URL: \"$2\"" >&2
         exit 2
       fi
-      if echo "$2" | grep '^https://' >/dev/null; then
+      if echo "$2" | grep -q '^https://'; then
         echo "$EXE: usage error: expecting an address, not a URL: \"$2\"" >&2
         exit 2
       fi
 
-      if echo "$2" | grep ':' >/dev/null; then
+      if echo "$2" | grep -q ':'; then
         # Value has a port number
         P="http://$2"
       else
@@ -170,6 +173,10 @@ do
       CVMFS_QUOTA_LIMIT_MB="$2"
       shift; shift
       ;;
+    -q|--quiet)
+      QUIET=yes
+      shift
+      ;;
     -v|--verbose)
       if [ -z "$VERBOSE" ]; then
         VERBOSE=yes
@@ -209,6 +216,7 @@ Options:
   -d | --direct             no proxies, connect to Stratum 1 (not recommended)*
   -n | --no-geo-api         do not use Geo API (default: use Geo API)
   -c | --cache-size NUM     size of cache in MiB (default: $DEFAULT_CACHE_SIZE_MB)
+  -q | --quiet              output nothng unless an error occurs
   -v | --verbose            output extra information when running
        --version            display version information and exit
   -h | --help               display this help and exit
@@ -254,7 +262,7 @@ if [ -z "$REPOS" ]; then
   exit 2
 fi
 
-if ! echo "$CVMFS_QUOTA_LIMIT_MB" | grep -E '^[0-9]+$' >/dev/null ; then
+if ! echo "$CVMFS_QUOTA_LIMIT_MB" | grep -qE '^[0-9]+$'; then
   echo "$EXE: usage error: invalid number: \"$CVMFS_QUOTA_LIMIT_MB\"" >&2
   exit 2
 fi
@@ -325,11 +333,15 @@ else
   DISTRO=unknown
 fi
 
-if echo "$DISTRO" | grep '^CentOS Linux release 7' > /dev/null; then
+if echo "$DISTRO" | grep -q '^CentOS Linux release 7'; then
   :
-elif echo "$DISTRO" | grep '^CentOS Linux release 8' > /dev/null; then
+elif echo "$DISTRO" | grep -q '^CentOS Linux release 8'; then
   :
-elif echo "$DISTRO" | grep '^CentOS Stream release 8' > /dev/null; then
+elif echo "$DISTRO" | grep -q '^CentOS Stream release 8'; then
+  :
+elif [ "$DISTRO" = 'Ubuntu 21.04' ]; then
+  :
+elif [ "$DISTRO" = 'Ubuntu 20.10' ]; then
   :
 elif [ "$DISTRO" = 'Ubuntu 20.04' ]; then
   :
@@ -353,10 +365,57 @@ fi
 # Unfortunately, "apt-get -q" and "yum install -q" still produces output.
 LOG="/tmp/${PROGRAM}.$$"
 
-_yum_install() {
-  PKG="$1"
+#----------------
+# Fedora functions
 
-  if ! echo "$PKG" | grep /^https:/ >/dev/null ; then
+_yum_not_installed() {
+  if rpm -q "$1" >/dev/null; then
+    return 1 # already installed
+  else
+    return 0 # not installed
+  fi
+}
+
+_yum_no_repo() {
+  # CentOS 7 has yum 3.4.3: no --enabled option, output is "cernvm/7/x86_64..."
+  # CentOS Stream 8 has yum 4.4.2: has --enabled option, output is "cernvm "
+  #
+  # So use old "enabled" argument instead of --enabled option and look for
+  # slash or space after the repo name.
+
+  if $YUM repolist enabled | grep -q "^$1[/ ]"; then
+    return 1 # has enabled repo
+  else
+    return 0 # no enabled repo
+  fi
+}
+
+_yum_install_repo() {
+  # Install the CernVM-FS YUM repository (if needed)
+  local REPO_NAME="$1"
+  local URL="$2"
+
+  if _yum_no_repo "$REPO_NAME"; then
+    # Repository not installed
+
+    _yum_install "$URL"
+
+    if _yum_no_repo "$REPO_NAME"; then
+      echo "$EXE: internal error: $URL did not install repo \"$REPO_NAME\"" >&2
+      exit 3
+    fi
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: repository already installed: $REPO_NAME"
+    fi
+  fi
+}
+
+_yum_install() {
+  local PKG="$1"
+
+  local PKG_NAME=
+  if ! echo "$PKG" | grep -q /^https:/; then
     # Value is a URL: extract package name from it
     PKG_NAME=$(echo "$PKG" | sed 's/^.*\///') # remove everything up to last /
     PKG_NAME=$(echo "$PKG_NAME" | sed 's/\.rpm$//') # remove .rpm
@@ -368,91 +427,86 @@ _yum_install() {
   if ! rpm -q $PKG_NAME >/dev/null ; then
     # Not already installed
 
-    if [ -n "$VERBOSE" ]; then
-      echo "$EXE: yum install: $PKG"
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: $YUM install: $PKG"
     fi
 
-    if ! yum install -y $PKG >$LOG 2>&1; then
+    if ! $YUM install -y $PKG >$LOG 2>&1; then
       cat $LOG
       rm $LOG
-      echo "$EXE: error: yum install: $PKG failed" >&2
+      echo "$EXE: error: $YUM install: $PKG failed" >&2
       exit 1
     fi
     rm $LOG
 
   else
-    if [ -n "$VERBOSE" ]; then
+    if [ -z "$QUIET" ]; then
       echo "$EXE: package already installed: $PKG"
     fi
   fi
 }
 
 #----------------
+# Debian functions
 
-if which yum >/dev/null; then
-  # Installing for Fedora based systems
+_dpkg_not_installed() {
+  if dpkg-query -s "$1" >/dev/null 2>&1; then
+    return 1 # already installed
+  else
+    return 0 # not installed
+  fi
+}
 
-  if ! rpm -q cvmfs >/dev/null; then
-    # Need to install cvmfs package, which first needs cvmfs-release-latest
+_dpkg_download_and_install() {
+  # Download a Debian file from a URL and install it.
+  local PKG_NAME="$1"
+  local URL="$2"
 
-    # Setup CernVM-FS YUM repository (if needed)
+  if _dpkg_not_installed "$PKG_NAME"; then
+    # Download it
 
-    EXPECTING='/etc/yum.repos.d/cernvm.repo'
-    if [ ! -e "$EXPECTING" ]; then
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: downloading $URL"
+    fi
 
-      _yum_install https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
+    DEB_FILE="/tmp/$(basename "$URL").$$"
 
-      if [ ! -e "$EXPECTING" ]; then
-        # The expected file was not installed.
-        # This means the above test for determining if the YUM repository
-        # has been installed or not needs to be changed.
-        echo "$EXE: internal error: file not found: $EXPECTING" >&2
-        exit 3
-      fi
-    fi # if [ ! -e "$EXPECTING" ]
+    if ! wget --quiet -O "$DEB_FILE" $URL; then
+      rm -f "$DEB_FILE"
+      echo "$EXE: error: could not download: $URL" >&2
+      exit 1
+    fi
 
-    # Installing cvmfs package
+    # Install it
 
-    _yum_install cvmfs
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: dpkg installing download file"
+    fi
+
+    if ! dpkg --install "$DEB_FILE" >$LOG 2>&1; then
+      cat $LOG
+      rm $LOG
+      echo "$EXE: error: dpkg install failed" >&2
+      exit 1
+    fi
+
+    rm -f "$DEB_FILE"
+
+    if _dpkg_not_installed "$PKG_NAME"; then
+      # The package from the URL did not install the expected package
+      echo "$EXE: internal error: $URL did not install $PKG_NAME" >&2
+      exit 3
+    fi
 
   else
-    if [ -n "$VERBOSE" ]; then
-      echo "$EXE: package already installed: cvmfs"
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: repository already installed: $REPO_NAME"
     fi
   fi
+}
 
-elif which apt-get >/dev/null; then
-  # Installing for Debian based systems
-
-  # TODO: check if it is already installed
-
-  URL=https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest_all.deb
-
-  if [ -n "$VERBOSE" ]; then
-    echo "$EXE: downloading $URL"
-  fi
-
-  DEB_FILE=/tmp/cvmfs-release-latest_all.deb
-
-  if ! wget --quiet -O "$DEB_FILE" $URL; then
-    echo "$EXE: error: could not download: $URL" >&2
-    exit 1
-  fi
-
-  if [ -n "$VERBOSE" ]; then
-    echo "$EXE: dpkg installing $DEB_FILE"
-  fi
-
-  if ! dpkg --install "$DEB_FILE" >$LOG 2>&1; then
-    cat $LOG
-    rm $LOG
-    echo "$EXE: error: dpkg install failed" >&2
-    exit 1
-  fi
-
-  rm "$DEB_FILE"
-
-  if [ -n "$VERBOSE" ]; then
+_apt_get_update() {
+  if [ -z "$QUIET" ]; then
     echo "$EXE: apt-get update"
   fi
 
@@ -462,21 +516,77 @@ elif which apt-get >/dev/null; then
     echo "$EXE: error: apt-get update failed" >&2
     exit 1
   fi
+}
 
-  if [ -n "$VERBOSE" ]; then
-    echo "$EXE: apt-get install cvmfs"
-  fi
+_apt_get_install() {
+  local PKG="$1"
 
-  if ! apt-get install -y cvmfs >$LOG 2>&1; then
-    cat $LOG
+  if _dpkg_not_installed "$PKG" ; then
+    # Not already installed: install it
+
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: apt-get install $PKG"
+    fi
+
+    if ! apt-get install -y "$PKG" >$LOG 2>&1; then
+      cat $LOG
+      rm $LOG
+      echo "$EXE: error: apt-get install cvmfs failed" >&2
+      exit 1
+    fi
     rm $LOG
-    echo "$EXE: error: apt-get install cvmfs failed" >&2
-    exit 1
+
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: package already installed: $PKG"
+    fi
   fi
-  rm $LOG
+}
+
+#----------------
+# Install for either Fedora or Debian based distributions
+
+YUM=yum
+if which dnf >/dev/null 2>&1; then
+  YUM=dnf
+fi
+
+if which $YUM >/dev/null 2>&1; then
+  # Installing for Fedora based distributions
+
+  if _yum_not_installed 'cvmfs'; then
+
+    _yum_install_repo 'cernvm' \
+      https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
+
+    _yum_install cvmfs
+
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: package already installed: cvmfs"
+    fi
+  fi
+
+elif which apt-get >/dev/null 2>&1; then
+  # Installing for Debian based distributions
+
+  if _dpkg_not_installed 'cvmfs' ; then
+
+    _dpkg_download_and_install 'cvmfs-release' \
+      https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest_all.deb
+
+    _apt_get_update
+
+    _apt_get_install cvmfs
+
+  else
+    if [ -z "$QUIET" ]; then
+      echo "$EXE: package already installed: cvmfs"
+    fi
+  fi
 
 else
-  echo "$EXE: unsupported system: no yum or apt-get" >&2
+  echo "$EXE: unsupported distribution: no apt-get, yum or dnf" >&2
   exit 3
 fi
 
@@ -509,7 +619,7 @@ for REPO in $REPOS; do
   if [ ! -e "$FILE" ]; then
     # Create organisation config file
 
-    if [ -n "$VERBOSE" ]; then
+    if [ -z "$QUIET" ]; then
       echo "$EXE: configuring organisation: $FILE"
     fi
 
@@ -545,7 +655,7 @@ for REPO in $REPOS; do
   fi
 
   REPO_PUBKEY_FILE="${ORG_KEY_DIR}/${FULLNAME}.pub"
-  if [ -n "$VERBOSE" ]; then
+  if [ -z "$QUIET" ]; then
     echo "$EXE: public key for repository: $REPO_PUBKEY_FILE"
   fi
 
@@ -579,7 +689,7 @@ else
   CVMFS_REPOSITORIES="${EXISTING_REPOS},${NEW_IDS}" # append new repositories
 fi
 
-if [ -n "$VERBOSE" ]; then
+if [ -z "$QUIET" ]; then
   echo "$EXE: configuring: $FILE"
 fi
 
@@ -622,7 +732,7 @@ rm $LOG
 
 # Setup
 
-if [ -n "$VERBOSE" ]; then
+if [ -z "$QUIET" ]; then
   echo "$EXE: running \"cvmfs_config setup\""
 fi
 
@@ -641,8 +751,8 @@ rm $LOG
 #----------------------------------------------------------------
 # Success
 
-if [ -n "$VERBOSE" ]; then
-  echo "$EXE: ok"
+if [ -z "$QUIET" ]; then
+  echo "$EXE: done"
 fi
 
 exit 0
