@@ -64,7 +64,6 @@ DEFAULT_CONFIG_FILES="
 "
 
 DEFAULT_REPOSITORIES="data.example.org tools.example.org"
-#PROXY_ALLOWED_CLIENTS=0.0.0.0/0
 
 #----------------------------------------------------------------
 # Command line arguments
@@ -101,19 +100,18 @@ do
       REPOSITORIES="$REPOSITORIES $2"
       shift; shift
       ;;
-    --allowed-clients|-a)
+    --allow-client|-a)
       if [ $# -lt 2 ]; then
         echo "$EXE: usage error: $1 missing value" >&2
         exit 2
       fi
-      if [ -n "$PROXY_ALLOWED_CLIENTS" ]; then
-        echo "$EXE: usage error: multiple $1 options not allowed" >&2
-        exit 2
-      fi
-      PROXY_ALLOWED_CLIENTS="$2"
+      PROXY_ALLOWED_CLIENTS="$PROXY_ALLOWED_CLIENTS $2"
       shift; shift
       ;;
-    --allow-all|-A)
+    --allow-all-clients|-A)
+      # Not recommended, since it could allow any client in the world to
+      # connect to the proxy. But is quick and easy for testing, when
+      # the tester does not know the address range of their clients.
       PROXY_ALLOWED_CLIENTS=0.0.0.0/0
       shift;
       ;;
@@ -153,8 +151,8 @@ Usage: $EXE_EXT [options] command
 Options:
   -c | --config FILE           configuration of the hosts and accounts
   -r | --repository NAME       repositories for setup-all and test-update *
-  -a | --allowed-clients CIDR  addresses of clients allowed to use proxy *
-  -A | --allow-all-clients     allow any client host to use the proxy
+  -a | --allow-client CIDR     addresses of clients allowed to use the proxy *
+  -A | --allow-all-clients     allow anyone to use the proxy (not recommended)
        --version               display version information and exit
   -h | --help                  display this help and exit
                                * = repeatable
@@ -405,7 +403,7 @@ _setup_all() {
     REPOSITORIES=$DEFAULT_REPOSITORIES
   fi
   if [ -z "$PROXY_ALLOWED_CLIENTS" ]; then
-    echo "$EXE: usage error: missing --allowed-clients" >&2
+    echo "$EXE: usage error: missing --allow-client" >&2
     exit 2
   fi
 

@@ -1,4 +1,4 @@
-# CernVM-FS setup scripts for creating example CernVM-FS hosts
+# CernVM-FS setup scripts for creating example hosts
 
 Scripts for setting up an example CernVM-FS system.  These scripts can
 be used to deploy the following servers:
@@ -42,23 +42,26 @@ _setup-example.sh_ script.
    and to run them:
 
         ./setup-example.sh setup-all
-    
+
 4. Modify a file on the Stratum 0 and wait for it to appear in the
    client.
-   
+
         ./setup-example.sh test-update
 
 ### Config file
 
-Example config file:
+A config file can be used to specify the addresses of the four hosts,
+and user accounts on them. Those user accounts are expected to have
+been configured to use SSH public-keys for authentication. They also
+are expected to have _sudo_ privileges without needing to enter a
+password.
 
-The config file is used to specify the address of the four hosts and
-a login account on it that has _sudo_ privileges.
+The _setup-example.sh_ script either loads config files from a
+sequence of default locations (which includes _setup-example.conf_ in
+the current directory) or only the config file specified on the
+command line. For more information, run the script with `--help`.
 
-The _setup-example.sh_ script looks for config files in a sequence of
-default locations, such as _setup-example.conf_ in the current
-directory, or the file can be specifed with the `--config` option.
-The config file is sourced for environment variables.
+An example config file:
 
 ```sh
 # setup-example config file
@@ -71,17 +74,28 @@ CVMFS_HOST_CLIENT=10.0.0.211
 CVMFS_USERNAME=ec2-user
 #CVMFS_USERNAME=ubuntu
 
+# The above CVMFS_USERNAME is used for all hosts, but the following will
+# override it for a particular host.
+
 #CVMFS_USERNAME_STRATUM0=ec2-user
 #CVMFS_USERNAME_STRATUM1=ec2-user
 #CVMFS_USERNAME_PROXY=ec2-user
 #CVMFS_USERNAME_CLIENT=ec2-user
 
-# Clients that can connect to the proxy (used by the "setup-all" command)
+# Clients that can connect to the proxy (only used by the "setup-all" command)
+# If not defined, --allow-client or --allow-all-clients options must be used.
+
 PROXY_ALLOWED_CLIENTS=10.0.0.0/8
 
-# REPOSITORIES="data.example.com tools.example.com"
+# Names of the repositories.
+# If not defined, the built-in defaults are used.
+
+#REPOSITORIES="data.example.com tools.example.com"
 ```
 
+The config file is a shell script that is sourced by the
+_setup-example.sh_ script to obtain the necessary environment
+variables.
 
 ## Example usage
 

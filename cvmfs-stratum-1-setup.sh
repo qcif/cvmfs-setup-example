@@ -644,7 +644,7 @@ elif which apt-get >/dev/null 2>&1; then
   if _dpkg_not_installed 'cvmfs' || _dpkg_not_installed 'cvmfs-server'; then
 
     # Get cvmfs-releast-latest-all repo
- 
+
     _dpkg_download_and_install 'cvmfs-release' \
       https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest_all.deb
 
