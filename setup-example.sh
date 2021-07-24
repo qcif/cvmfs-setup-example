@@ -39,7 +39,7 @@
 #================================================================
 
 PROGRAM='setup-example'
-VERSION='1.0.0'
+VERSION='1.1.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -54,7 +54,145 @@ set -e
 set -u # fail on attempts to expand undefined environment variables
 
 #----------------------------------------------------------------
-# Configure test environment
+# Defaults
+
+DEFAULT_CONFIG_FILES="
+ $HOME/.config/cvmfs-setup-example.conf
+ $HOME/.cvmfs-setup-example.conf
+ cvmfs-setup-example.conf
+ setup-example.conf
+"
+
+DEFAULT_REPOSITORIES="data.example.org tools.example.org"
+#PROXY_ALLOWED_CLIENTS=0.0.0.0/0
+
+#----------------------------------------------------------------
+# Command line arguments
+# Note: parsing does not support combining single letter options (e.g. "-vh")
+
+CONFIG_FILE=
+PROXY_ALLOWED_CLIENTS=
+REPOSITORIES=
+VERBOSE=
+SHOW_VERSION=
+SHOW_HELP=
+COMMAND=
+
+while [ $# -gt 0 ]
+do
+  case "$1" in
+    --config|-c)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      if [ -n "$CONFIG_FILE" ]; then
+        echo "$EXE: usage error: multiple $1 options not allowed" >&2
+        exit 2
+      fi
+      CONFIG_FILE="$2"
+      shift; shift
+      ;;
+    --repository|--repo|-r)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      REPOSITORIES="$REPOSITORIES $2"
+      shift; shift
+      ;;
+    --allowed-clients|-a)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      if [ -n "$PROXY_ALLOWED_CLIENTS" ]; then
+        echo "$EXE: usage error: multiple $1 options not allowed" >&2
+        exit 2
+      fi
+      PROXY_ALLOWED_CLIENTS="$2"
+      shift; shift
+      ;;
+    --allow-all|-A)
+      PROXY_ALLOWED_CLIENTS=0.0.0.0/0
+      shift;
+      ;;
+
+    -v|--verbose)
+      VERBOSE=yes
+      shift
+      ;;
+    --version)
+      SHOW_VERSION=yes
+      shift
+      ;;
+    -h|--help)
+      SHOW_HELP=yes
+      shift
+      ;;
+    -*)
+      echo "$EXE: usage error: unknown option: $1" >&2
+      exit 2
+      ;;
+    *)
+      # Argument
+
+      if [ -n "$COMMAND" ]; then
+        echo "$EXE: usage error: unexpected argument: $1" >&2
+        exit 2
+      fi
+      COMMAND="$1"
+      shift;
+      ;;
+  esac
+done
+
+if [ -n "$SHOW_HELP" ]; then
+  cat <<EOF
+Usage: $EXE_EXT [options] command
+Options:
+  -c | --config FILE           configuration of the hosts and accounts
+  -r | --repository NAME       repositories for setup-all and test-update *
+  -a | --allowed-clients CIDR  addresses of clients allowed to use proxy *
+  -A | --allow-all-clients     allow any client host to use the proxy
+       --version               display version information and exit
+  -h | --help                  display this help and exit
+                               * = repeatable
+Commands:
+  show-config        show the configuration that will be used
+  setup-all          run all the setup scripts on the respective hosts
+  repo-list          list available repositories from the Stratum 0
+  test-update        modify file on Stratum 0 and wait for change on the Client
+
+  cs | copy-scripts  copies the scripts to their respective hosts
+  cp | copy-pubkeys  copies public keys from Stratum 0 to Stratum 1 and Client
+  s0 | ssh-s0        ssh to the Stratum 0 host
+  s1 | ssh-s1        ssh to the Stratum 1 host
+  sp | ssh-proxy     ssh to the Proxy host
+  sc | ssh-client    ssh to the Client host
+
+Default repositories: $DEFAULT_REPOSITORIES
+
+Default config files (tried in order if --config not specified):
+EOF
+
+  # -v | --verbose      output extra information when running
+
+  for F in $DEFAULT_CONFIG_FILES; do
+    echo "  $F"
+  done
+  echo
+
+  exit 0
+fi
+
+if [ -n "$SHOW_VERSION" ]; then
+  echo "$PROGRAM $VERSION"
+  exit 0
+fi
+
+#----------------------------------------------------------------
+# Load test environment from config file
 
 CVMFS_HOST_STRATUM0=
 CVMFS_HOST_STRATUM1=
@@ -68,21 +206,38 @@ CVMFS_USERNAME_CLIENT=
 
 CVMFS_USERNAME=
 
-# Load from configuration file (if any of them exists)
+SAVED_REPOSITORIES=$REPOSITORIES
+SAVED_PROXY_ALLOWED_CLIENTS=$PROXY_ALLOWED_CLIENTS
 
-CONFIG_FILES="$HOME/.cvmfs-setup-example.conf cvmfs-setup-example.conf setup-example.conf"
+if [ -n "$CONFIG_FILE" ]; then
+  # Config file specified on command line: only load that one file
+  source "$CONFIG_FILE" # set environment variables from it
 
-CFG_ERR='not defined: missing config file'
+  CFG_ERR="not defined: fix config file: $CONFIG_FILE"
+else
+  # No config file on command line: try loading all default files
 
-for CONFIG_FILE in $CONFIG_FILES ; do
-  if [ -f "$CONFIG_FILE" ]; then
-    CFG_ERR="not defined: fix config file: $CONFIG_FILE"
-    # Source it to set environment variables
-    . "$CONFIG_FILE"
-  fi
-done
+  CFG_ERR='not defined: missing config file'
 
-# Check test environment variables have been set (usuall from a config file)
+  for CONFIG_FILE in $DEFAULT_CONFIG_FILES ; do
+    if [ -f "$CONFIG_FILE" ]; then
+      CFG_ERR="not defined: fix config file: $CONFIG_FILE"
+      source "$CONFIG_FILE" # set environment variables from it
+    fi
+  done
+fi
+
+# Restore command line values that override any values in the config file(s)
+
+if [ -n "$SAVED_REPOSITORIES" ]; then
+  REPOSITORIES="$SAVED_REPOSITORIES"
+fi
+
+if [ -n "$SAVED_PROXY_ALLOWED_CLIENTS" ]; then
+  PROXY_ALLOWED_CLIENTS="$SAVED_PROXY_ALLOWED_CLIENTS"
+fi
+
+# Check test environment variables have been set
 
 if [ -z "$CVMFS_HOST_STRATUM0" ]; then
   echo "$EXE: error: CVMFS_HOST_STRATUM0 $CFG_ERR" >&2
@@ -140,54 +295,27 @@ ADDR_PROXY="$CVMFS_USERNAME_PROXY@$CVMFS_HOST_PROXY"
 ADDR_CLIENT="$CVMFS_USERNAME_CLIENT@$CVMFS_HOST_CLIENT"
 
 #----------------------------------------------------------------
+# Run command
 
-# Option for SSH: StrictHostKeyChecking=off automatically add host key
-# to ~/.ssh/known_hosts, and allows connections to hosts with changed
-# hostkeys to proceed. THIS IS UNSAFE, but for testing it is more
-# convenient when the host and their host keys often change.
-# Unfortunately, there is no way to not add the host keys to the file
-# and to allow connections where the host key is not in the file.
+#----------------
+# Option for SSH (ssh and scp): StrictHostKeyChecking=off
+# automatically add host key to ~/.ssh/known_hosts, and allows
+# connections to hosts with changed hostkeys to proceed. THIS IS
+# UNSAFE, but for testing it is more convenient when the host and
+# their host keys often change.  Unfortunately, there is no way to not
+# add the host keys to the file and to allow connections where the
+# host key is not in the file.
 #
 # See `man ssh_config` for details
 
 SSH_SHKC_OPTION=StrictHostKeyChecking=off
 
-_ssh() {
-  ssh -o $SSH_SHKC_OPTION "$1"
-}
-
-HIGHLIGHT_PREFIX='>>> '
-
 #----------------
 
-if [ $# -gt 1 ]; then
-  echo "$EXE: usage error: too many arguments" >&2
-  exit 2
+_copy_scripts() {
+  # Copy scripts to respective hosts
 
-elif [ $# -eq 0 ] || [ "$1" = '-h' ] || [ "$1" = '--help' ]; then
-  # Help
-  cat <<EOF
-Usage: $EXE_EXT command
-Commands:
-  cs | copy-scripts  copies cvmfs-*-setup.sh scripts to their respective hosts
-  cp | copy-pubkeys  copies public keys from Stratum 0 to Stratum 1 and Client
-  s0 | ssh-s0        ssh to the Stratum 0 host
-  s1 | ssh-s1        ssh to the Stratum 1 host
-  sp | ssh-proxy     ssh to the Proxy host
-  sc | ssh-client    ssh to the Client host
-
-Configure hosts and accounts as environment variables in a config file:
-EOF
-  for F in $CONFIG_FILES; do
-    echo "  $F"
-  done
-  exit 2
-
-  #----------------
-elif [ "$1" = 'copy-scripts' ] || [ "$1" = 'cs' ]; then
-  # Copy scripts to hosts
-
-  echo "Scripts:"
+  echo "Copying scripts:"
 
   echo "  cvmfs-stratum-0-setup.sh -> Stratum 0 ($CVMFS_HOST_STRATUM0)"
   scp -q -o $SSH_SHKC_OPTION cvmfs-stratum-0-setup.sh $ADDR_STRATUM0:
@@ -203,13 +331,16 @@ elif [ "$1" = 'copy-scripts' ] || [ "$1" = 'cs' ]; then
 
   echo "  monitor-file.sh -> Client ($CVMFS_HOST_CLIENT)"
   scp -q -o $SSH_SHKC_OPTION monitor-file.sh $ADDR_CLIENT:
+}
 
-  #----------------
-elif [ "$1" = 'copy-pubkeys' ] || [ "$1" = 'copy-pubkey' ] || \
-       [ "$1" = 'cp' ]; then
-  # Copy public keys from Stratum 0 central server to client
+#----------------
 
-  echo "Public keys from Stratum 0 ($CVMFS_HOST_STRATUM0):"
+_copy_pubkeys() {
+  # Copy all public keys from Stratum 0 host to Stratum 1 and Client hosts
+
+  TMP="/tmp/${PROGRAM}-$$.pub"
+
+  echo "Copying public keys from Stratum 0 ($CVMFS_HOST_STRATUM0):"
 
   KEYDIR=/etc/cvmfs/keys
 
@@ -218,49 +349,223 @@ elif [ "$1" = 'copy-pubkeys' ] || [ "$1" = 'copy-pubkey' ] || \
 
     echo "  Repository name: $REPO"
 
-    scp -q -o $SSH_SHKC_OPTION $ADDR_STRATUM0:$KEYDIR/$REPO.pub $REPO.pub
-    chmod 644 $REPO.pub
+    scp -q -o $SSH_SHKC_OPTION $ADDR_STRATUM0:$KEYDIR/$REPO.pub $TMP
+    chmod 644 $TMP
 
     echo "    -> Stratum 1 ($CVMFS_HOST_STRATUM1)"
-    scp -q -o $SSH_SHKC_OPTION $REPO.pub $ADDR_STRATUM1:$REPO.pub
+    scp -q -o $SSH_SHKC_OPTION $TMP $ADDR_STRATUM1:$REPO.pub
 
     echo "    -> Client ($CVMFS_HOST_CLIENT)"
-    scp -q -o $SSH_SHKC_OPTION $REPO.pub $ADDR_CLIENT:$REPO.pub
+    scp -q -o $SSH_SHKC_OPTION $TMP $ADDR_CLIENT:$REPO.pub
   done
 
-  #----------------
-elif [ "$1" = 'ssh-s0' ] || [ "$1" = 's0' ]; then
-  # SSH to Stratum 0
-  _ssh $ADDR_STRATUM0
+  rm -f $TMP
+}
 
-  #----------------
-elif [ "$1" = 'ssh-s1' ] || [ "$1" = 's1' ]; then
-  # SSH to Stratum 1
-  echo "${HIGHLIGHT_PREFIX}Stratum 0: $CVMFS_HOST_STRATUM0"
-  _ssh $ADDR_STRATUM1
+#----------------
 
-  #----------------
-elif [ "$1" = 'ssh-proxy' ] || [ "$1" = 'sp' ]; then
-  # SSH to Proxy
-  echo "${HIGHLIGHT_PREFIX}Stratum 1: $CVMFS_HOST_STRATUM1"
-  _ssh $ADDR_PROXY
-  #----------------
-elif [ "$1" = 'ssh-client' ] || [ "$1" = 'sc' ]; then
-  # SSH to Client
-  echo "${HIGHLIGHT_PREFIX}Stratum 1: $CVMFS_HOST_STRATUM1"
-  echo "${HIGHLIGHT_PREFIX}Proxy: $CVMFS_HOST_PROXY"
-  _ssh $ADDR_CLIENT
+_echo() {
+  # Show information that will be useful when configuring that host.
+  echo ">>> $*"
+}
 
-  #----------------
-else
-  echo "$EXE: usage error: unknown command: $1 (-h for help)" >&2
-  exit 2
-fi
+#----------------
 
-# In the above SSH commands:
-#
-# - As a reminder, the above SSH commands displays ">>> address" for
-#   address values that will be needed when configuring that
-#   particular host.
+_ssh_quiet() {
+  # Run SSH
+  ssh -q -o $SSH_SHKC_OPTION -t $*
+}
+
+_ssh() {
+  # Run SSH
+  _echo "ssh $*"
+  _ssh_quiet $*
+}
+
+#----------------
+
+_show_config() {
+  echo "Configuration:"
+  echo "  Stratum 0: $ADDR_STRATUM0"
+  echo "  Stratum 1: $ADDR_STRATUM1"
+  echo "      Proxy: $ADDR_PROXY"
+  echo "     Client: $ADDR_CLIENT"
+  if [ -n "$PROXY_ALLOWED_CLIENTS" ]; then
+    echo "Proxy created by \"setup-all\" will allow connections from: $PROXY_ALLOWED_CLIENTS"
+  fi
+  if [ -n "$REPOSITORIES" ]; then
+    echo "Repositories: $REPOSITORIES"
+  fi
+}
+
+#----------------
+
+_setup_all() {
+  if [ -z "$REPOSITORIES" ]; then
+    REPOSITORIES=$DEFAULT_REPOSITORIES
+  fi
+  if [ -z "$PROXY_ALLOWED_CLIENTS" ]; then
+    echo "$EXE: usage error: missing --allowed-clients" >&2
+    exit 2
+  fi
+
+  # Check if hosts are already setup
+
+  if _ssh_quiet $ADDR_STRATUM0 'test -e /cvmfs' ; then
+    echo "$EXE: error: Stratum 0 already has CernVM-FS installed" >&2
+    exit 1
+  fi
+  if _ssh_quiet $ADDR_STRATUM1 'test -e /cvmfs' ; then
+    echo "$EXE: error: Stratum 1 already has CernVM-FS installed" >&2
+    exit 1
+  fi
+  if _ssh_quiet $ADDR_PROXY 'test -e /etc/squid' ; then
+    echo "$EXE: error: Proxy already has Squid installed" >&2
+    exit 1
+  fi
+  if _ssh_quiet $ADDR_CLIENT 'test -e /cvmfs' ; then
+    echo "$EXE: error: Client already has CernVM-FS installed" >&2
+    exit 1
+  fi
+
+  # Setup all the hosts
+
+  _echo "setup-all:"
+  _echo "  This will copy the scripts to the hosts and then run them,"
+  _echo "  creating all four servers in about 10 minutes."
+  _echo
+
+  _copy_scripts
+  echo
+
+  _ssh $ADDR_STRATUM0 \
+       sudo ./cvmfs-stratum-0-setup.sh $REPOSITORIES
+  echo
+
+  _copy_pubkeys
+  echo
+
+  _ssh $ADDR_STRATUM1 \
+       sudo ./cvmfs-stratum-1-setup.sh --stratum-0 $CVMFS_HOST_STRATUM0 \
+       --refresh 2 \
+       \*.pub
+  echo
+
+  _ssh $ADDR_PROXY \
+       sudo ./cvmfs-proxy-setup.sh --stratum-1 $CVMFS_HOST_STRATUM1 \
+       $PROXY_ALLOWED_CLIENTS
+  echo
+
+  _ssh $ADDR_CLIENT \
+       sudo ./cvmfs-client-setup.sh --stratum-1 $CVMFS_HOST_STRATUM1 \
+       --proxy $CVMFS_HOST_PROXY \
+       --no-geo-api \
+       \*.pub
+  echo
+
+  echo "$EXE: done"
+}
+
+#----------------
+
+_repo_list() {
+  _ssh_quiet $ADDR_STRATUM0 ls -1 /cvmfs
+}
+
+#----------------
+
+_test_update() {
+  # Test how long it takes for a change to propagate from Stratum 0 to client
+  TEST_FILE=test-update.txt
+  if [ -z "$REPOSITORIES" ]; then
+    REPOSITORIES=$DEFAULT_REPOSITORIES
+  fi
+  REPO=$(echo $REPOSITORIES | awk '{print $1}') # only use first, if multiples
+
+  if ! _ssh_quiet $ADDR_STRATUM0 test -e /cvmfs/$REPO ; then
+    echo "$EXE: error: repository does not exist: $REPO" >&2
+    exit 1
+  fi
+
+  _echo "test-update:"
+  _echo "  This will create/update a file on the Stratum 0"
+  _echo "  and wait for it to propagate, via the Stratum 1"
+  _echo "  and the Proxy, to change on the client."
+  _echo
+  _echo "Updating \"$TEST_FILE\" in the \"$REPO\" repository."
+
+  # If a transaction is still open, use this to discard its changes:
+  # _ssh $ADDR_STRATUM0 "sudo cvmfs_server abort $REPO"
+
+  _ssh $ADDR_STRATUM0 "sudo cvmfs_server transaction $REPO"
+  _ssh $ADDR_STRATUM0 "date > /cvmfs/$REPO/$TEST_FILE"
+  _ssh $ADDR_STRATUM0 "sudo cvmfs_server publish $REPO"
+
+  _echo "Waiting for update to appear in on the client..."
+  _ssh $ADDR_CLIENT "./monitor-file.sh /cvmfs/$REPO/$TEST_FILE"
+
+}
+
+#----------------
+
+case $COMMAND in
+  show-config)
+    _show_config
+    ;;
+
+  setup-all)
+    _setup_all
+    ;;
+
+  repo-list)
+    _repo_list
+    ;;
+
+  test-update)
+    _test_update
+    ;;
+
+  copy-scripts)
+    _copy_scripts
+    ;;
+
+  copy-pubkeys|copy-pubkey|cp)
+    _copy_pubkeys
+    ;;
+
+  ssh-stratum-0|ssh-s0|s0)
+    # SSH to Stratum 0
+    _ssh $ADDR_STRATUM0
+    ;;
+
+  ssh-stratum-1|ssh-s1|s1)
+    # SSH to Stratum 1
+    _echo "Stratum 0: $CVMFS_HOST_STRATUM0"
+    _ssh $ADDR_STRATUM1
+    ;;
+
+  ssh-proxy|sp)
+    # SSH to Proxy
+    _echo "Stratum 1: $CVMFS_HOST_STRATUM1"
+    _ssh $ADDR_PROXY
+    ;;
+
+  ssh-client|sc)
+    # SSH to Client
+    _echo "Stratum 1: $CVMFS_HOST_STRATUM1"
+    _echo "Proxy: $CVMFS_HOST_PROXY"
+    _ssh $ADDR_CLIENT
+    ;;
+
+  '')
+    echo "$EXE: usage error: missing command (-h for help)" >&2
+    exit 2
+    ;;
+
+  *)
+    echo "$EXE: usage error: unknown command: $COMMAND (-h for help)" >&2
+    exit 2
+    ;;
+esac
 
 #EOF

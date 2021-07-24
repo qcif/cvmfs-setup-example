@@ -28,7 +28,64 @@ also provide redundancy.
 
 **These scripts are not intended for use in a production system.**
 
+## Quick start
+
+The scripts can be individually run on the hosts. But for testing, a
+quick way to run them is to use the "setup-all" command in the
+_setup-example.sh_ script.
+
+1. Create four new hosts machines (either running CentOS or Ubuntu).
+
+2. Create a configuration file with details about the hosts.
+
+3. Run the _setup-example.sh_ script to copy the scripts to the hosts
+   and to run them:
+
+        ./setup-example.sh setup-all
+    
+4. Modify a file on the Stratum 0 and wait for it to appear in the
+   client.
+   
+        ./setup-example.sh test-update
+
+### Config file
+
+Example config file:
+
+The config file is used to specify the address of the four hosts and
+a login account on it that has _sudo_ privileges.
+
+The _setup-example.sh_ script looks for config files in a sequence of
+default locations, such as _setup-example.conf_ in the current
+directory, or the file can be specifed with the `--config` option.
+The config file is sourced for environment variables.
+
+```sh
+# setup-example config file
+
+CVMFS_HOST_STRATUM0=10.0.0.200
+CVMFS_HOST_STRATUM1=10.0.0.201
+CVMFS_HOST_PROXY=10.0.0.210
+CVMFS_HOST_CLIENT=10.0.0.211
+
+CVMFS_USERNAME=ec2-user
+#CVMFS_USERNAME=ubuntu
+
+#CVMFS_USERNAME_STRATUM0=ec2-user
+#CVMFS_USERNAME_STRATUM1=ec2-user
+#CVMFS_USERNAME_PROXY=ec2-user
+#CVMFS_USERNAME_CLIENT=ec2-user
+
+# Clients that can connect to the proxy (used by the "setup-all" command)
+PROXY_ALLOWED_CLIENTS=10.0.0.0/8
+
+# REPOSITORIES="data.example.com tools.example.com"
+```
+
+
 ## Example usage
+
+The scripts also can be individually run on the hosts.
 
 This example shows the use of these scripts to create and use a
 CernVM-FS repository called _data.example.org_.
