@@ -149,10 +149,10 @@ do
 done
 
 if [ -n "$SHOW_HELP" ]; then
-  EXAMPLE_CLIENTS="192.168.0.0/16 172.16.0.0/12"
+  EXAMPLE_CLIENTS="192.168.0.0/16 172.16.0.0/12  # example only: use your client addresses"
   if which ip >/dev/null && ip addr | grep -q 203.101.239.255; then
     # Special example if running in a QRIScloud VM
-    EXAMPLE_CLIENTS="203.101.224.0/20  # Allows all hosts in QRIScloud to use this proxy"
+    EXAMPLE_CLIENTS="203.101.224.0/20  # only allow clients in QRIScloud to use this proxy"
   fi
 
   cat <<EOF

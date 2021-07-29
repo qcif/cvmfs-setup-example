@@ -66,10 +66,10 @@ An example config file:
 ```sh
 # setup-example config file
 
-CVMFS_HOST_STRATUM0=10.0.0.200
-CVMFS_HOST_STRATUM1=10.0.0.201
-CVMFS_HOST_PROXY=10.0.0.210
-CVMFS_HOST_CLIENT=10.0.0.211
+CVMFS_HOST_STRATUM0=10.0.0.1
+CVMFS_HOST_STRATUM1=10.1.1.1
+CVMFS_HOST_PROXY=10.2.2.2
+CVMFS_HOST_CLIENT=10.3.3.3
 
 CVMFS_USERNAME=ec2-user
 #CVMFS_USERNAME=ubuntu
@@ -85,7 +85,8 @@ CVMFS_USERNAME=ec2-user
 # Clients that can connect to the proxy (only used by the "setup-all" command)
 # If not defined, --allow-client or --allow-all-clients options must be used.
 
-PROXY_ALLOWED_CLIENTS=10.0.0.0/8
+PROXY_ALLOWED_CLIENTS=10.3.3.0/24
+#PROXY_ALLOWED_CLIENTS=10.0.0.0/8
 
 # Names of the repositories.
 # If not defined, the built-in defaults are used.
