@@ -39,7 +39,7 @@
 #================================================================
 
 PROGRAM='setup-example'
-VERSION='1.1.0'
+VERSION='1.2.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -72,6 +72,7 @@ DEFAULT_REPOSITORIES="data.example.org tools.example.org"
 CONFIG_FILE=
 PROXY_ALLOWED_CLIENTS=
 REPOSITORIES=
+PUBLISHER=
 VERBOSE=
 SHOW_VERSION=
 SHOW_HELP=
@@ -98,6 +99,14 @@ do
         exit 2
       fi
       REPOSITORIES="$REPOSITORIES $2"
+      shift; shift
+      ;;
+    --publisher|p)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      PUBLISHER="$2"
       shift; shift
       ;;
     --allow-client|-a)
@@ -151,6 +160,7 @@ Usage: $EXE_EXT [options] command
 Options:
   -c | --config FILE           configuration of the hosts and accounts
   -r | --repository NAME       repositories for setup-all and test-update *
+  -p | --publisher USERNAME    user account on Stratum 0 for publisher
   -a | --allow-client CIDR     addresses of clients allowed to use the proxy *
   -A | --allow-all-clients     allow anyone to use the proxy (not recommended)
        --version               display version information and exit
@@ -409,20 +419,25 @@ _setup_all() {
 
   # Check if hosts are already setup
 
+  local ALREADY_SETUP
+  ALREADY_SETUP=
   if _ssh_quiet $ADDR_STRATUM0 'test -e /cvmfs' ; then
     echo "$EXE: error: Stratum 0 already has CernVM-FS installed" >&2
-    exit 1
+    ALREADY_SETUP=yes
   fi
   if _ssh_quiet $ADDR_STRATUM1 'test -e /cvmfs' ; then
     echo "$EXE: error: Stratum 1 already has CernVM-FS installed" >&2
-    exit 1
+    ALREADY_SETUP=yes
   fi
   if _ssh_quiet $ADDR_PROXY 'test -e /etc/squid' ; then
     echo "$EXE: error: Proxy already has Squid installed" >&2
-    exit 1
+    ALREADY_SETUP=yes
   fi
   if _ssh_quiet $ADDR_CLIENT 'test -e /cvmfs' ; then
     echo "$EXE: error: Client already has CernVM-FS installed" >&2
+    ALREADY_SETUP=yes
+  fi
+  if [ -n "$ALREADY_SETUP" ]; then
     exit 1
   fi
 
@@ -436,8 +451,29 @@ _setup_all() {
   _copy_scripts
   echo
 
+  local _PUBLISHER
+  if [ -n "$PUBLISHER" ]; then
+    _PUBLISHER="$PUBLISHER"
+
+    _echo "Creating user account on Stratum 0: $PUBLISHER"
+    _ssh $ADDR_STRATUM0 \
+         sudo adduser $_PUBLISHER
+
+    _echo "Creating .ssh/authorized_keys file for $PUBLISHER"
+    _ssh $ADDR_STRATUM0 \
+         sudo mkdir ~$_PUBLISHER/.ssh
+    _ssh $ADDR_STRATUM0 \
+         sudo cp .ssh/authorized_keys  ~$_PUBLISHER/.ssh
+    _ssh $ADDR_STRATUM0 \
+         sudo chown $_PUBLISHER: ~$_PUBLISHER/.ssh
+    _ssh $ADDR_STRATUM0 \
+         sudo chown $_PUBLISHER: ~$_PUBLISHER/.ssh/authorized_keys
+  else
+    _PUBLISHER="$CVMFS_USERNAME_STRATUM0"
+  fi
+
   _ssh $ADDR_STRATUM0 \
-       sudo ./cvmfs-stratum-0-setup.sh $REPOSITORIES
+       sudo ./cvmfs-stratum-0-setup.sh --user $_PUBLISHER $REPOSITORIES
   echo
 
   _copy_pubkeys

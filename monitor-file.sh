@@ -47,19 +47,25 @@ fi
 #----------------------------------------------------------------
 # Timing
 
-START=$(date '+%s') # seconds past epoch
+# Produces the duration that has passed (e.g. "15s", "3m15s" or "2h5m30s")
 
-# Produces the duration that has passed (e.g. "15s" or "3m 15s")
+_duration_from() {
+  # Usage: _duration_from start_seconds [end_seconds]
 
-duration() {
-  NOW=$(date '+%s') # seconds past epoch
-
-  SEC=$(($NOW - $START))
+  local END
+  if [ $# -gt 1 ]; then
+    END="$2"
+  else
+    END=$(date '+%s')
+  fi
+  local SEC=$(($END - $1))
 
   if [ $SEC -lt 60 ]; then
     echo "${SEC}s"
+  elif [ $SEC -lt 3600 ]; then
+    echo "$(($SEC / 60))m$(($SEC % 60))s"
   else
-    echo "$(($SEC / 60))m $(($SEC % 60))s"
+    echo "$(($SEC / 3600))h$(($SEC % 3600 / 60))m$(($SEC % 60))s"
   fi
 }
 
@@ -69,6 +75,8 @@ duration() {
 # tput documentation: https://tldp.org/HOWTO/Bash-Prompt-HOWTO/x405.html
 
 display_init() {
+  START=$(date '+%s') # seconds past epoch
+
   /bin/echo -n "$FILE: "
   tput sc # save cursor position
 }
@@ -79,7 +87,7 @@ display_progress() {
   /bin/echo -n "waiting for file to be $STATE: "
   # tput smso # enter standout mode
   tput bold
-  /bin/echo -n "$(duration)"
+  /bin/echo -n "$(_duration_from $START)"
   # tput rmso # exit standout mode
   tput sgr0 # turn off all attributes (i.e. remove bold)
   /bin/echo -n ' '
@@ -87,7 +95,7 @@ display_progress() {
 
 display_finish() {
   tput rc # restore cursor position
-  echo "$STATE $(date "+%FT%T%z") after $(duration)"
+  echo "$STATE $(date "+%FT%T%z") after $(_duration_from $START)"
   tput bel # beep
 }
 
