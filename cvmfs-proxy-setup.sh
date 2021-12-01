@@ -24,11 +24,13 @@
 # updates and maintenance updates are only available until 2024-06-30,
 # so it probably should not be used.
 #
+# Note: this is a POSIX "sh" script for maximum portability.
+#
 # Copyright (C) 2021, QCIF Ltd.
 #================================================================
 
 PROGRAM='cvmfs-proxy-setup'
-VERSION='1.1.0'
+VERSION='1.2.1'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -40,11 +42,19 @@ EXE_EXT=$(basename "$0")
 
 DEFAULT_PROXY_PORT=3128
 
-DEFAULT_DISK_CACHE_SIZE_MB=5120
+# Memory cache
+
 DEFAULT_MEM_CACHE_SIZE_MB=256
 
-MIN_DISK_CACHE_SIZE_MB=128
 MIN_MEM_CACHE_SIZE_MB=10
+
+# Disk cache
+
+DEFAULT_DISK_CACHE_DIR=/var/spool/squid
+
+DEFAULT_DISK_CACHE_SIZE_MB=5120
+
+MIN_DISK_CACHE_SIZE_MB=128
 
 #----------------
 
@@ -67,8 +77,9 @@ set -u # fail on attempts to expand undefined environment variables
 STRATUM_ONE_HOSTS=
 CLIENTS=
 PROXY_PORT=$DEFAULT_PROXY_PORT
-DISK_CACHE_SIZE_MB=$DEFAULT_DISK_CACHE_SIZE_MB
 MEM_CACHE_SIZE_MB=$DEFAULT_MEM_CACHE_SIZE_MB
+DISK_CACHE_DIR=$DEFAULT_DISK_CACHE_DIR
+DISK_CACHE_SIZE_MB=$DEFAULT_DISK_CACHE_SIZE_MB
 QUIET=
 VERBOSE=
 SHOW_VERSION=
@@ -93,14 +104,6 @@ do
       PROXY_PORT="$2"
       shift; shift
       ;;
-    -d|--disk-cache)
-      if [ $# -lt 2 ]; then
-        echo "$EXE: usage error: $1 missing value" >&2
-        exit 2
-      fi
-      DISK_CACHE_SIZE_MB="$2"
-      shift; shift
-      ;;
     -m|--mem-cache)
       if [ $# -lt 2 ]; then
         echo "$EXE: usage error: $1 missing value" >&2
@@ -109,6 +112,24 @@ do
       MEM_CACHE_SIZE_MB="$2"
       shift; shift
       ;;
+
+    -d|--disk-cache-size)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      DISK_CACHE_SIZE_MB="$2"
+      shift; shift
+      ;;
+    --disk-cache-dir)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      DISK_CACHE_DIR="$2"
+      shift; shift
+      ;;
+
     -q|--quiet)
       QUIET=yes
       shift
@@ -160,9 +181,12 @@ Usage: $EXE [options] {ALLOWED_CLIENTS}
 Options:
   -1 | --stratum-1 HOST  Stratum 1 replica (mandatory; repeat for each)
   -p | --port NUM        proxy port (default: $DEFAULT_PROXY_PORT)
-  -d | --disk-cache NUM  size of disk cache in MiB (default: $DEFAULT_DISK_CACHE_SIZE_MB)
   -m | --mem-cache NUM   size of memory cache in MiB (default: $DEFAULT_MEM_CACHE_SIZE_MB)
-  -q | --quiet           output nothng unless an error occurs
+
+  -d | --disk-cache NUM      size of disk cache in MiB (default: $DEFAULT_DISK_CACHE_SIZE_MB)
+       --disk-cache-dir DIR  spool directory (default: $DEFAULT_DISK_CACHE_DIR)
+
+  -q | --quiet           output nothing unless an error occurs
   -v | --verbose         output extra information when running
        --version         display version information and exit
   -h | --help            display this help and exit
@@ -299,8 +323,8 @@ _yum_no_repo() {
 
 _yum_install_repo() {
   # Install the CernVM-FS YUM repository (if needed)
-  local REPO_NAME="$1"
-  local URL="$2"
+  REPO_NAME="$1"
+  URL="$2"
 
   if _yum_no_repo "$REPO_NAME"; then
     # Repository not installed
@@ -319,9 +343,9 @@ _yum_install_repo() {
 }
 
 _yum_install() {
-  local PKG="$1"
+  PKG="$1"
 
-  local PKG_NAME=
+  PKG_NAME=
   if ! echo "$PKG" | grep -q /^https:/; then
     # Value is a URL: extract package name from it
     PKG_NAME=$(echo "$PKG" | sed 's/^.*\///') # remove everything up to last /
@@ -331,14 +355,14 @@ _yum_install() {
     PKG_NAME="$PKG"
   fi
 
-  if ! rpm -q $PKG_NAME >/dev/null ; then
+  if ! rpm -q "$PKG_NAME" >/dev/null ; then
     # Not already installed
 
     if [ -z "$QUIET" ]; then
       echo "$EXE: $YUM install: $PKG"
     fi
 
-    if ! $YUM install -y $PKG >$LOG 2>&1; then
+    if ! $YUM install -y "$PKG" >$LOG 2>&1; then
       cat $LOG
       rm $LOG
       echo "$EXE: error: $YUM install: $PKG failed" >&2
@@ -366,8 +390,8 @@ _dpkg_not_installed() {
 
 _dpkg_download_and_install() {
   # Download a Debian file from a URL and install it.
-  local PKG_NAME="$1"
-  local URL="$2"
+  PKG_NAME="$1"
+  URL="$2"
 
   if _dpkg_not_installed "$PKG_NAME"; then
     # Download it
@@ -378,7 +402,7 @@ _dpkg_download_and_install() {
 
     DEB_FILE="/tmp/$(basename "$URL").$$"
 
-    if ! wget --quiet -O "$DEB_FILE" $URL; then
+    if ! wget --quiet -O "$DEB_FILE" "$URL"; then
       rm -f "$DEB_FILE"
       echo "$EXE: error: could not download: $URL" >&2
       exit 1
@@ -426,7 +450,7 @@ _apt_get_update() {
 }
 
 _apt_get_install() {
-  local PKG="$1"
+  PKG="$1"
 
   if _dpkg_not_installed "$PKG" ; then
     # Not already installed: install it
@@ -532,16 +556,20 @@ http_access deny all
 # Cache properties
 
 minimum_expiry_time 0
+
 maximum_object_size 1024 MB
 
 # Memory cache
+
 cache_mem ${MEM_CACHE_SIZE_MB} MB
 maximum_object_size_in_memory 16 MB
 
 # Disk cache
+#
 # cache_dir TYPE DIRECTORY-NAME FS-SPECIFIC-DATA [OPTIONS]
 # cache_dir ufs  DIRECTORY-NAME Mbytes L1 L2     [OPTIONS]
-cache_dir ufs /var/spool/squid ${DISK_CACHE_SIZE_MB} 16 256
+
+cache_dir ufs ${DISK_CACHE_DIR} ${DISK_CACHE_SIZE_MB} 16 256
 EOF
 
 #----------------------------------------------------------------
@@ -550,6 +578,20 @@ EOF
 if ! squid -k parse >/dev/null 2>&1; then
   echo "$EXE: internal error: squid config is incorrect" >&2
   exit 1
+fi
+
+#----------------------------------------------------------------
+# Ensure disk cache directory exists
+#
+# The default /var/spool/squid is created by installing the squid
+# package, but if a different location is used the directory needs to
+# be created.
+
+if [ ! -e "${DISK_CACHE_DIR}" ]; then
+  mkdir -p "$DISK_CACHE_DIR"
+
+  chown squid: "$DISK_CACHE_DIR"
+  chmod 750 "$DISK_CACHE_DIR"
 fi
 
 #----------------------------------------------------------------

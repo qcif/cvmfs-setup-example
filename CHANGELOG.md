@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+
+- Refactored code.
+- Added support for setting the CVMFS_FILE_MBYTE_LIMIT on Stratum 0.
+- Added support for setting the disk cache size on the caching proxy.
+
 ## 1.2.0
 
 - Added publisher account for Stratum 0.
