@@ -4,17 +4,22 @@
 #
 # Takes about 2.5 minutes to run.
 #
+# Note: this is a POSIX "sh" script for maximum portability.
+#
 # Copyright (C) 2021, QCIF Ltd.
 #================================================================
 
 PROGRAM='cvmfs-stratum-0-setup'
-VERSION='1.1.0'
+VERSION='1.2.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
 
 #----------------------------------------------------------------
 # Constants
+
+DEFAULT_CVMFS_FILE_MBYTE_LIMIT=$((4 * 1024)) # MiB
+MIN_CVMFS_FILE_MBYTE_LIMIT=10 # MiB
 
 # Default repository owner user account
 
@@ -44,6 +49,7 @@ set -u # fail on attempts to expand undefined environment variables
 # Note: parsing does not support combining single letter options (e.g. "-vh")
 
 REPO_USER="$DEFAULT_REPO_USER"
+CVMFS_FILE_MBYTE_LIMIT=$DEFAULT_CVMFS_FILE_MBYTE_LIMIT
 QUIET=
 VERBOSE=
 VERY_VERBOSE=
@@ -60,6 +66,14 @@ do
         exit 2
       fi
       REPO_USER="$2"
+      shift; shift
+      ;;
+    --file-limit)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      CVMFS_FILE_MBYTE_LIMIT="$2"
       shift; shift
       ;;
     -q|--quiet)
@@ -100,11 +114,12 @@ if [ -n "$SHOW_HELP" ]; then
   cat <<EOF
 Usage: $EXE_EXT [options] {REPOSITORY_IDS}
 Options:
-  -u | --user ID   repository owner account (default: $DEFAULT_REPO_USER)
-  -q | --quiet     output nothng unless an error occurs
-  -v | --verbose   output extra information when running
-       --version   display version information and exit
-  -h | --help      display this help and exit
+  -u | --user ID          repository owner account (default: $DEFAULT_REPO_USER)
+       --file-limit SIZE  publish file size limit in MiB (default: $DEFAULT_CVMFS_FILE_MBYTE_LIMIT MiB)
+  -q | --quiet            output nothing unless an error occurs
+  -v | --verbose          output extra information when running
+       --version          display version information and exit
+  -h | --help             display this help and exit
 REPOSITORY_IDS: fully qualified repository names of the repositories to create
 
 e.g. $EXE_EXT \\
@@ -136,6 +151,16 @@ fi
 if [ -n "$SHOW_VERSION" ]; then
   echo "$PROGRAM $VERSION"
   exit 0
+fi
+
+
+if ! echo "$CVMFS_FILE_MBYTE_LIMIT" | grep -qE '^[0-9]+$'; then
+  echo "$EXE: usage error: CVMFS_FILE MBYTE_LIMIT: invalid number: \"$CVMFS_FILE_MBYTE_LIMIT\"" >&2
+  exit 2
+fi
+if [ "$CVMFS_FILE_MBYTE_LIMIT" -lt $MIN_CVMFS_FILE_MBYTE_LIMIT ]; then
+  echo "$EXE: usage error: publish file limit is too small: $CVMFS_FILE_MBYTE_LIMIT MiB" >&2
+  exit 2
 fi
 
 if [ -z "$REPO_IDS" ]; then
@@ -239,8 +264,8 @@ _yum_no_repo() {
 
 _yum_install_repo() {
   # Install the CernVM-FS YUM repository (if needed)
-  local REPO_NAME="$1"
-  local URL="$2"
+  REPO_NAME="$1"
+  URL="$2"
 
   if _yum_no_repo "$REPO_NAME"; then
     # Repository not installed
@@ -259,9 +284,9 @@ _yum_install_repo() {
 }
 
 _yum_install() {
-  local PKG="$1"
+  PKG="$1"
 
-  local PKG_NAME=
+  PKG_NAME=
   if ! echo "$PKG" | grep -q /^https:/; then
     # Value is a URL: extract package name from it
     PKG_NAME=$(echo "$PKG" | sed 's/^.*\///') # remove everything up to last /
@@ -271,14 +296,14 @@ _yum_install() {
     PKG_NAME="$PKG"
   fi
 
-  if ! rpm -q $PKG_NAME >/dev/null ; then
+  if ! rpm -q "$PKG_NAME" >/dev/null ; then
     # Not already installed
 
     if [ -z "$QUIET" ]; then
       echo "$EXE: $YUM install: $PKG"
     fi
 
-    if ! $YUM install -y $PKG >$LOG 2>&1; then
+    if ! $YUM install -y "$PKG" >$LOG 2>&1; then
       cat $LOG
       rm $LOG
       echo "$EXE: error: $YUM install: $PKG failed" >&2
@@ -306,8 +331,8 @@ _dpkg_not_installed() {
 
 _dpkg_download_and_install() {
   # Download a Debian file from a URL and install it.
-  local PKG_NAME="$1"
-  local URL="$2"
+  PKG_NAME="$1"
+  URL="$2"
 
   if _dpkg_not_installed "$PKG_NAME"; then
     # Download it
@@ -318,7 +343,7 @@ _dpkg_download_and_install() {
 
     DEB_FILE="/tmp/$(basename "$URL").$$"
 
-    if ! wget --quiet -O "$DEB_FILE" $URL; then
+    if ! wget --quiet -O "$DEB_FILE" "$URL"; then
       rm -f "$DEB_FILE"
       echo "$EXE: error: could not download: $URL" >&2
       exit 1
@@ -366,7 +391,7 @@ _apt_get_update() {
 }
 
 _apt_get_install() {
-  local PKG="$1"
+  PKG="$1"
 
   if _dpkg_not_installed "$PKG" ; then
     # Not already installed: install it
@@ -436,14 +461,14 @@ if which $YUM >/dev/null 2>&1; then
   # Apache Web Server (Note: was installed as a dependency of cvmfs-server)
 
   APACHE_SERVICE=httpd.service
-  APACHE_CONFIG=/etc/httpd/conf/httpd.conf
+  # APACHE_CONFIG=/etc/httpd/conf/httpd.conf
 
 elif which apt-get >/dev/null 2>&1; then
   # Installing for Debian based distributions
 
   if _dpkg_not_installed 'cvmfs' || _dpkg_not_installed 'cvmfs-server'; then
 
-    # Get cvmfs-releast-latest-all repo
+    # Get cvmfs-release-latest-all repo
 
     _dpkg_download_and_install 'cvmfs-release' \
       https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest_all.deb
@@ -466,7 +491,7 @@ elif which apt-get >/dev/null 2>&1; then
   _apt_get_install apache2  # Apache Web Server not installed by cvmfs-server
 
   APACHE_SERVICE=apache2.service
-  APACHE_CONFIG=/etc/apache2/apache2.conf
+  # APACHE_CONFIG=/etc/apache2/apache2.conf
 
 else
   echo "$EXE: unsupported distribution: no apt-get, yum or dnf" >&2
@@ -560,6 +585,14 @@ for FULLNAME in $REPO_IDS; do
     fi
     rm $LOG
 
+    # Add custom config
+
+    cat >> "/etc/cvmfs/repositories.d/$FULLNAME/server.conf" <<EOF
+
+# $PROGRAM_INFO
+CVMFS_FILE_MBYTE_LIMIT=$CVMFS_FILE_MBYTE_LIMIT
+
+EOF
     # Output information needed to configure clients
 
     if [ -z "$QUIET" ]; then
@@ -577,10 +610,6 @@ for FULLNAME in $REPO_IDS; do
     echo "$EXE: repository already exists: $FULLNAME"
   fi
 done
-
-if [ -n "$CREATED_FULLNAMES" ]; then
-  echo '' # extra blank line after last public key
-fi
 
 #----------------------------------------------------------------
 # Cron job for re-signing whitelists
@@ -610,7 +639,11 @@ fi
 if [ -n "$CREATED_FULLNAMES" ]; then
   # There are cron jobs to add
 
-  MINUTE=$(grep resign "$FILE" | wc -l) # count number of existing jobs
+  # Count the number of existing jobs, to offset each new job by one minute
+  # from the previous job.
+  # Note: do not use "grep -c", since that will have a failed exit status
+  # when there is no existing jobs and this script will abort.
+  MINUTE=$(grep resign "$FILE" | wc -l)
 
   echo '' >> $FILE
   echo "# Added [$(date '+%F %T %Z')]:" >> $FILE
@@ -623,11 +656,17 @@ if [ -n "$CREATED_FULLNAMES" ]; then
     # min hour day month day-of-week (i.e. 9pm every Sunday)
     echo "$MINUTE 21 * * 7 root /usr/bin/cvmfs_server resign $FULLNAME" >> $FILE
 
-    MINUTE=$(($MINUTE + 1))
+    MINUTE=$((MINUTE + 1))
     if [ $MINUTE -ge 60 ] ; then
       MINUTE=0
     fi
   done
+else
+  if [ -n "$FILE_WAS_CREATED" ]; then
+    echo "$EXE: $FILE: not initialized with any jobs"
+  else
+    echo "$EXE: $FILE: no jobs added"
+  fi
 fi
 
 #----------------------------------------------------------------
