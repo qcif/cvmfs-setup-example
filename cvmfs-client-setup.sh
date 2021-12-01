@@ -6,11 +6,13 @@
 # are from the same organisation, and uses the same Stratum 0 and
 # Stratum 1 hosts.
 #
+# Note: this is a POSIX "sh" script for maximum portability.
+#
 # Copyright (C) 2021, QCIF Ltd.
 #================================================================
 
 PROGRAM='cvmfs-client-setup'
-VERSION='1.1.0'
+VERSION='1.1.1'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -216,7 +218,7 @@ Options:
   -d | --direct             no proxies, connect to Stratum 1 (not recommended)*
   -n | --no-geo-api         do not use Geo API (default: use Geo API)
   -c | --cache-size NUM     size of cache in MiB (default: $DEFAULT_CACHE_SIZE_MB)
-  -q | --quiet              output nothng unless an error occurs
+  -q | --quiet              output nothing unless an error occurs
   -v | --verbose            output extra information when running
        --version            display version information and exit
   -h | --help               display this help and exit
@@ -277,7 +279,7 @@ fi
 # Check that all the public key files exist
 
 for REPO in $REPOS; do
-  FILENAME=$(_pubkey_file $REPO)
+  FILENAME=$(_pubkey_file "$REPO")
 
   if [ ! -f "$FILENAME" ]; then
     echo "$EXE: usage error: file does not exist: \"$FILENAME\"" >&2
@@ -288,12 +290,12 @@ done
 # Check repository is not already configured on this host
 
 for REPO in $REPOS; do
-  FULLNAME=$(_fqrn $REPO)
+  FULLNAME=$(_fqrn "$REPO")
 
   # Assumption: if the repository has been configured, its public key
   # exists in the common/expected places.
 
-  for FILE in "/etc/cvmfs/keys/$(_org_id $REPO)/${FULLNAME}.pub" \
+  for FILE in "/etc/cvmfs/keys/$(_org_id "$REPO")/${FULLNAME}.pub" \
                 "/etc/cvmfs/keys/${FULLNAME}.pub"; do
     if [ -e "$FILE" ]; then
       echo "$EXE: error: repository already configured: $FULLNAME ($FILE)" >&2
@@ -308,8 +310,8 @@ done
 COMMON_ORG=
 for REPO in $REPOS; do
   if [ -z "$COMMON_ORG" ]; then
-    COMMON_ORG=$(_org_id $REPO)
-  elif [ "$COMMON_ORG" != "$(_org_id $REPO)" ]; then
+    COMMON_ORG=$(_org_id "$REPO")
+  elif [ "$COMMON_ORG" != "$(_org_id "$REPO")" ]; then
     echo "$EXE: error: multiple organisations not supported" >&2
     exit 1
   fi
@@ -392,8 +394,8 @@ _yum_no_repo() {
 
 _yum_install_repo() {
   # Install the CernVM-FS YUM repository (if needed)
-  local REPO_NAME="$1"
-  local URL="$2"
+  REPO_NAME="$1"
+  URL="$2"
 
   if _yum_no_repo "$REPO_NAME"; then
     # Repository not installed
@@ -412,9 +414,9 @@ _yum_install_repo() {
 }
 
 _yum_install() {
-  local PKG="$1"
+  PKG="$1"
 
-  local PKG_NAME=
+  PKG_NAME=
   if ! echo "$PKG" | grep -q /^https:/; then
     # Value is a URL: extract package name from it
     PKG_NAME=$(echo "$PKG" | sed 's/^.*\///') # remove everything up to last /
@@ -424,14 +426,14 @@ _yum_install() {
     PKG_NAME="$PKG"
   fi
 
-  if ! rpm -q $PKG_NAME >/dev/null ; then
+  if ! rpm -q "$PKG_NAME" >/dev/null ; then
     # Not already installed
 
     if [ -z "$QUIET" ]; then
       echo "$EXE: $YUM install: $PKG"
     fi
 
-    if ! $YUM install -y $PKG >$LOG 2>&1; then
+    if ! $YUM install -y "$PKG" >$LOG 2>&1; then
       cat $LOG
       rm $LOG
       echo "$EXE: error: $YUM install: $PKG failed" >&2
@@ -459,8 +461,8 @@ _dpkg_not_installed() {
 
 _dpkg_download_and_install() {
   # Download a Debian file from a URL and install it.
-  local PKG_NAME="$1"
-  local URL="$2"
+  PKG_NAME="$1"
+  URL="$2"
 
   if _dpkg_not_installed "$PKG_NAME"; then
     # Download it
@@ -471,7 +473,7 @@ _dpkg_download_and_install() {
 
     DEB_FILE="/tmp/$(basename "$URL").$$"
 
-    if ! wget --quiet -O "$DEB_FILE" $URL; then
+    if ! wget --quiet -O "$DEB_FILE" "$URL"; then
       rm -f "$DEB_FILE"
       echo "$EXE: error: could not download: $URL" >&2
       exit 1
@@ -519,7 +521,7 @@ _apt_get_update() {
 }
 
 _apt_get_install() {
-  local PKG="$1"
+  PKG="$1"
 
   if _dpkg_not_installed "$PKG" ; then
     # Not already installed: install it
@@ -612,7 +614,7 @@ done
 # Create the organisation config file(s)
 
 for REPO in $REPOS; do
-  ORG=$(_org_id $REPO)
+  ORG=$(_org_id "$REPO")
 
   FILE=/etc/cvmfs/domain.d/${ORG}.conf
 
@@ -623,7 +625,7 @@ for REPO in $REPOS; do
       echo "$EXE: configuring organisation: $FILE"
     fi
 
-    ORG_KEY_DIR="/etc/cvmfs/keys/$(_org_id $REPO)"
+    ORG_KEY_DIR="/etc/cvmfs/keys/$(_org_id "$REPO")"
 
     cat > "$FILE" <<EOF
 # CVMFS repository configuration: $ORG
@@ -643,9 +645,9 @@ done
 # Add public keys to the organisation's key directory
 
 for REPO in $REPOS; do
-  FULLNAME=$(_fqrn $REPO)
+  FULLNAME=$(_fqrn "$REPO")
 
-  ORG_KEY_DIR="/etc/cvmfs/keys/$(_org_id $REPO)"
+  ORG_KEY_DIR="/etc/cvmfs/keys/$(_org_id "$REPO")"
 
   if [ ! -e "$ORG_KEY_DIR" ]; then
     if ! mkdir "$ORG_KEY_DIR"; then
@@ -655,11 +657,12 @@ for REPO in $REPOS; do
   fi
 
   REPO_PUBKEY_FILE="${ORG_KEY_DIR}/${FULLNAME}.pub"
+
   if [ -z "$QUIET" ]; then
     echo "$EXE: public key for repository: $REPO_PUBKEY_FILE"
   fi
 
-  cp "$(_pubkey_file $REPO)" "$REPO_PUBKEY_FILE"
+  cp "$(_pubkey_file "$REPO")" "$REPO_PUBKEY_FILE"
   chmod 644 "$REPO_PUBKEY_FILE"
 
   # TODO: what about configuring /etc/cvmfs/config.d/${FULLNAME}.conf?
@@ -672,7 +675,7 @@ FILE="/etc/cvmfs/default.local"
 
 NEW_IDS=
 for REPO in $REPOS; do
-  FULLNAME=$(_fqrn $REPO)
+  FULLNAME=$(_fqrn "$REPO")
 
   if [ -z "$NEW_IDS" ]; then
     NEW_IDS="${FULLNAME}"

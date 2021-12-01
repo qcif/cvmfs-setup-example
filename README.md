@@ -32,21 +32,21 @@ also provide redundancy.
 
 The scripts can be individually run on the hosts. But for testing, a
 quick way to run them is to use the "setup-all" command in the
-_setup-example.sh_ script.
+_example-setup.sh_ script.
 
 1. Create four new hosts machines (either running CentOS or Ubuntu).
 
 2. Create a configuration file with details about the hosts.
 
-3. Run the _setup-example.sh_ script to copy the scripts to the hosts
+3. Run the _example-setup.sh_ script to copy the scripts to the hosts
    and to run them:
 
-        ./setup-example.sh setup-all
+        ./example-setup.sh setup-all
 
 4. Modify a file on the Stratum 0 and wait for it to appear in the
    client.
 
-        ./setup-example.sh test-update
+        ./example-setup.sh test-update
 
 ### Config file
 
@@ -56,15 +56,15 @@ been configured to use SSH public-keys for authentication. They also
 are expected to have _sudo_ privileges without needing to enter a
 password.
 
-The _setup-example.sh_ script either loads config files from a
-sequence of default locations (which includes _setup-example.conf_ in
+The _example-setup.sh_ script either loads config files from a
+sequence of default locations (which includes _example-setup.conf_ in
 the current directory) or only the config file specified on the
 command line. For more information, run the script with `--help`.
 
 An example config file:
 
 ```sh
-# setup-example config file
+# example-setup config file
 
 CVMFS_HOST_STRATUM0=10.0.0.1
 CVMFS_HOST_STRATUM1=10.1.1.1
@@ -95,7 +95,7 @@ PROXY_ALLOWED_CLIENTS=10.3.3.0/24
 ```
 
 The config file is a shell script that is sourced by the
-_setup-example.sh_ script to obtain the necessary environment
+_example-setup.sh_ script to obtain the necessary environment
 variables.
 
 ## Example usage

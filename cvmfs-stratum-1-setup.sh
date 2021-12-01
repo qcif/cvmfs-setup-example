@@ -11,11 +11,13 @@
 # maintenance updates are only available until 2024-06-30, so it
 # probably should not be used.
 #
+# Note: this is a POSIX "sh" script for maximum portability.
+#
 # Copyright (C) 2021, QCIF Ltd.
 #================================================================
 
 PROGRAM='cvmfs-stratum-1-setup'
-VERSION='1.1.0'
+VERSION='1.1.1'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -276,7 +278,7 @@ if ! echo "$REFRESH_MINUTES" | grep -qE '^[0-9]+$'; then
   echo "$EXE: usage error: refresh minute step: invalid positive integer: \"$REFRESH_MINUTES\"" >&2
   exit 2
 fi
-if [ $REFRESH_MINUTES -lt 1 ] || [ $REFRESH_MINUTES -gt 30 ]; then
+if [ "$REFRESH_MINUTES" -lt 1 ] || [ "$REFRESH_MINUTES" -gt 30 ]; then
   echo "$EXE: usage error: refresh minute step: out of range (1-30): \"$REFRESH_MINUTES\"" >&2
   exit 2
 fi
@@ -302,7 +304,7 @@ fi
 # Check that all the public key files exist
 
 for REPO in $REPOS; do
-  FILENAME=$(_pubkey_file $REPO)
+  FILENAME=$(_pubkey_file "$REPO")
 
   if [ ! -f "$FILENAME" ]; then
     echo "$EXE: usage error: file does not exist: \"$FILENAME\"" >&2
@@ -328,7 +330,7 @@ for REPO in $REPOS; do
   FULLNAME=$(_fqrn "$REPO")
 
   if ! curl --head --fail \
-       http://$STRATUM_0_HOST/cvmfs/$FULLNAME/.cvmfs_master_replica \
+       "http://$STRATUM_0_HOST/cvmfs/$FULLNAME/.cvmfs_master_replica" \
        >/dev/null 2>&1; then
     echo "$EXE: error: repository does not exist on the Stratum 0: $FULLNAME at $STRATUM_0_HOST" >&2
     exit 1
@@ -418,8 +420,8 @@ _yum_no_repo() {
 
 _yum_install_repo() {
   # Install the CernVM-FS YUM repository (if needed)
-  local REPO_NAME="$1"
-  local URL="$2"
+  REPO_NAME="$1"
+  URL="$2"
 
   if _yum_no_repo "$REPO_NAME"; then
     # Repository not installed
@@ -438,9 +440,9 @@ _yum_install_repo() {
 }
 
 _yum_install() {
-  local PKG="$1"
+  PKG="$1"
 
-  local PKG_NAME=
+  PKG_NAME=
   if ! echo "$PKG" | grep -q /^https:/; then
     # Value is a URL: extract package name from it
     PKG_NAME=$(echo "$PKG" | sed 's/^.*\///') # remove everything up to last /
@@ -450,14 +452,14 @@ _yum_install() {
     PKG_NAME="$PKG"
   fi
 
-  if ! rpm -q $PKG_NAME >/dev/null ; then
+  if ! rpm -q "$PKG_NAME" >/dev/null ; then
     # Not already installed
 
     if [ -z "$QUIET" ]; then
       echo "$EXE: $YUM install: $PKG"
     fi
 
-    if ! $YUM install -y $PKG >$LOG 2>&1; then
+    if ! $YUM install -y "$PKG" >$LOG 2>&1; then
       cat $LOG
       rm $LOG
       echo "$EXE: error: $YUM install: $PKG failed" >&2
@@ -485,8 +487,8 @@ _dpkg_not_installed() {
 
 _dpkg_download_and_install() {
   # Download a Debian file from a URL and install it.
-  local PKG_NAME="$1"
-  local URL="$2"
+  PKG_NAME="$1"
+  URL="$2"
 
   if _dpkg_not_installed "$PKG_NAME"; then
     # Download it
@@ -497,7 +499,7 @@ _dpkg_download_and_install() {
 
     DEB_FILE="/tmp/$(basename "$URL").$$"
 
-    if ! wget --quiet -O "$DEB_FILE" $URL; then
+    if ! wget --quiet -O "$DEB_FILE" "$URL"; then
       rm -f "$DEB_FILE"
       echo "$EXE: error: could not download: $URL" >&2
       exit 1
@@ -545,7 +547,7 @@ _apt_get_update() {
 }
 
 _apt_get_install() {
-  local PKG="$1"
+  PKG="$1"
 
   if _dpkg_not_installed "$PKG" ; then
     # Not already installed: install it
@@ -839,15 +841,15 @@ fi
 # Add repository public key
 
 for REPO in $REPOS; do
-  ORG_KEY_DIR="/etc/cvmfs/keys/$(_org_id $REPO)"
+  ORG_KEY_DIR="/etc/cvmfs/keys/$(_org_id "$REPO")"
 
   if [ ! -d "$ORG_KEY_DIR" ]; then
     mkdir "$ORG_KEY_DIR"
   fi
 
-  REPO_PUBKEY_FILE="${ORG_KEY_DIR}/$(_fqrn $REPO).pub"
+  REPO_PUBKEY_FILE="${ORG_KEY_DIR}/$(_fqrn "$REPO").pub"
 
-  cp "$(_pubkey_file $REPO)" "$REPO_PUBKEY_FILE"
+  cp "$(_pubkey_file "$REPO")" "$REPO_PUBKEY_FILE"
   chmod 644 "$REPO_PUBKEY_FILE"
 done
 
@@ -855,7 +857,7 @@ done
 # Setup the replicas
 
 for REPO in $REPOS; do
-  FULLNAME=$(_fqrn $REPO)
+  FULLNAME=$(_fqrn "$REPO")
 
   # Add the replica
 
@@ -864,8 +866,8 @@ for REPO in $REPOS; do
   fi
 
   if ! cvmfs_server add-replica -o "$REPO_USER" \
-     http://${STRATUM_0_HOST}/cvmfs/${FULLNAME} \
-     /etc/cvmfs/keys/$(_org_id $REPO) >$LOG 2>&1 ; then
+     "http://${STRATUM_0_HOST}/cvmfs/${FULLNAME}" \
+     "/etc/cvmfs/keys/$(_org_id "$REPO")" >$LOG 2>&1 ; then
     cat $LOG
     rm $LOG
     echo "$EXE: error: could not add replica: $FULLNAME from $STRATUM_0_HOST" >&2
@@ -891,7 +893,7 @@ for REPO in $REPOS; do
     echo "$EXE: snapshot: $FULLNAME"
   fi
 
-  if ! cvmfs_server snapshot $FULLNAME >$LOG 2>&1; then
+  if ! cvmfs_server snapshot "$FULLNAME" >$LOG 2>&1; then
     cat $LOG
     rm $LOG
     echo "$EXE: error: could not snapshot repository: $FULLNAME" >&2
