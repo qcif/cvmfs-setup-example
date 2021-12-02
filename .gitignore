@@ -1,4 +1,3 @@
 *~
-*.pub
-setup-example.conf
-cvmfs-setup-example.conf
+.DS_Store
+cvmfs-test.conf

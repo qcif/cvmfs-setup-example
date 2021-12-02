@@ -31,72 +31,10 @@ also provide redundancy.
 ## Quick start
 
 The scripts can be individually run on the hosts. But for testing, a
-quick way to run them is to use the "setup-all" command in the
-_example-setup.sh_ script.
+quick way to run them is to use the "reset-all" command in the
+_test/cvmfs-test.sh_ script.
 
-1. Create four new hosts machines (either running CentOS or Ubuntu).
-
-2. Create a configuration file with details about the hosts.
-
-3. Run the _example-setup.sh_ script to copy the scripts to the hosts
-   and to run them:
-
-        ./example-setup.sh setup-all
-
-4. Modify a file on the Stratum 0 and wait for it to appear in the
-   client.
-
-        ./example-setup.sh test-update
-
-### Config file
-
-A config file can be used to specify the addresses of the four hosts,
-and user accounts on them. Those user accounts are expected to have
-been configured to use SSH public-keys for authentication. They also
-are expected to have _sudo_ privileges without needing to enter a
-password.
-
-The _example-setup.sh_ script either loads config files from a
-sequence of default locations (which includes _example-setup.conf_ in
-the current directory) or only the config file specified on the
-command line. For more information, run the script with `--help`.
-
-An example config file:
-
-```sh
-# example-setup config file
-
-CVMFS_HOST_STRATUM0=10.0.0.1
-CVMFS_HOST_STRATUM1=10.1.1.1
-CVMFS_HOST_PROXY=10.2.2.2
-CVMFS_HOST_CLIENT=10.3.3.3
-
-CVMFS_USERNAME=ec2-user
-#CVMFS_USERNAME=ubuntu
-
-# The above CVMFS_USERNAME is used for all hosts, but the following will
-# override it for a particular host.
-
-#CVMFS_USERNAME_STRATUM0=ec2-user
-#CVMFS_USERNAME_STRATUM1=ec2-user
-#CVMFS_USERNAME_PROXY=ec2-user
-#CVMFS_USERNAME_CLIENT=ec2-user
-
-# Clients that can connect to the proxy (only used by the "setup-all" command)
-# If not defined, --allow-client or --allow-all-clients options must be used.
-
-PROXY_ALLOWED_CLIENTS=10.3.3.0/24
-#PROXY_ALLOWED_CLIENTS=10.0.0.0/8
-
-# Names of the repositories.
-# If not defined, the built-in defaults are used.
-
-#REPOSITORIES="data.example.com tools.example.com"
-```
-
-The config file is a shell script that is sourced by the
-_example-setup.sh_ script to obtain the necessary environment
-variables.
+See _test/README.md_ for details.
 
 ## Example usage
 
