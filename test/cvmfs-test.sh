@@ -153,7 +153,9 @@ Options:
   -h | --help                  display this help and exit
 
 Main commands:
-  reset-all    reset all the hosts (see minor commands below)
+  reset-all    rebuild and setup all the hosts (see minor commands below)
+  setup-all    reset-all without rebuilding VM (they must already be ready)
+
   test-update  modify file on Stratum 0 and waits for change on the Client
 
   list-repos   list available repositories from the Stratum 0
@@ -189,6 +191,7 @@ if [ -z "$COMMAND" ]; then
 $EXE: usage error: missing command
 Common commands:
   reset-all
+  setup-all
   test-update
   list-repos
   ssh-s0|s0, ssh-s1|s1, ssh-proxy|sp, ssh-client|sc, ssh-publisher|pub
@@ -449,10 +452,15 @@ _check_num() {
 #----------------
 
 _reset_all() {
+  local -r DO_REBUILD="$1"
+
   local -r START=$(date '+%s') # seconds past epoch
 
-  _rebuild_vm_instances
-  _wait_for_rpm_lock # needed to run the scripts immediately after rebuild
+  if [ "$DO_REBUILD" = 'rebuild' ]; then
+    _rebuild_vm_instances
+    _wait_for_rpm_lock # needed to run the scripts immediately after rebuild
+  fi
+
   _echoN; _copy_scripts
   _echoN; _run_scripts
   _echoN; _populate_repositories
@@ -917,7 +925,8 @@ _main() {
   LOGIN_PUBLISHER="$PUBLISHER@$CVMFS_HOST_STRATUM0"
 
   case $COMMAND in
-    reset-all) _reset_all ;;
+    reset-all) _reset_all rebuild ;;
+    setup-all) _reset_all no-rebuild ;;
     test-update) _test_update ;;
 
     list-repos) _repo_list ;;

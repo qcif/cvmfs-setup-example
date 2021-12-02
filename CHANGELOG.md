@@ -7,6 +7,7 @@
 - Added support for setting the disk cache size on the caching proxy.
 - Created test utilities.
 - Added maximum object size option for cvmfs-proxy-setup.sh.
+- Added setup-all command to not perform rebuild of VM instances.
 
 ## 1.2.0
 

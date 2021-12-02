@@ -15,32 +15,47 @@ Requirements
 Procedure
 ---------
 
-1. Create a config file for your environment. See sample-cvmfs-test.conf.
+### 1. Create a config file
 
-2. Rebuild the operating system on the VM instances and install the hosts:
-
-    ./cvmfs-test.sh reset-all
-
-   This takes about an hour to run.
-
-3. Change a file on the Stratum 0 and see how long it takes for the change
-   to appear on the client.
-
-    ./cvmfs-test.sh test-update
-
-### Config file
-
-A config file can be used to specify the addresses of the four hosts,
-and user accounts on them. Those user accounts are expected to have
-been configured to use SSH public-keys for authentication. They also
-are expected to have _sudo_ privileges without needing to enter a
+A config file is used to specify the addresses of the four hosts, and
+user accounts on them. Those user accounts are expected to have been
+configured to use SSH public-keys for authentication. They also are
+expected to have _sudo_ privileges without needing to enter a
 password.
-
-See the _sample-cvmfs-test.conf_ file for details.
 
 The config file can be explicitly provided with the `--config` option,
 or it searches for a default config file (see `--help` for details).
 
 The config file is a shell script that is sourced by the
-_cvmfs-test.sh_ script to obtain the necessary environment
-variables.
+_cvmfs-test.sh_ script to obtain the necessary environment variables.
+
+See the _sample-cvmfs-test.conf_ file for details.
+
+### 2. Setup
+
+#### Automatically with OpenStack command
+
+If the OpenStack unified command line client (`openstack`) is
+available, source an OpenStack RC file to use it. Create a config file
+containing the UUIDs of the four hosts and the Glance image to use
+to rebuild them.
+
+Then run:
+
+    ./cvmfs-test.sh reset-all
+
+Depending on the amount of content to add to the repositories, than
+can take about an hour to run.
+
+#### Manually without OpenStack command
+
+Manually create the four hosts and then run:
+
+    ./cvmfs-test.sh setup-all
+
+### 3. Test updates
+
+This command changes a file on the Stratum 0, and see how long it
+takes for the change to appear on the client.
+
+    ./cvmfs-test.sh test-update
