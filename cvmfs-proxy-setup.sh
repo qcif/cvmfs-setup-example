@@ -30,7 +30,7 @@
 #================================================================
 
 PROGRAM='cvmfs-proxy-setup'
-VERSION='1.2.1'
+VERSION='1.3.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -41,6 +41,8 @@ EXE_EXT=$(basename "$0")
 #----------------
 
 DEFAULT_PROXY_PORT=3128
+
+DEFAULT_MAX_OBJECT_SIZE_MB=1024
 
 # Memory cache
 
@@ -77,6 +79,7 @@ set -u # fail on attempts to expand undefined environment variables
 STRATUM_ONE_HOSTS=
 CLIENTS=
 PROXY_PORT=$DEFAULT_PROXY_PORT
+MAX_OBJECT_SIZE_MB=$DEFAULT_MAX_OBJECT_SIZE_MB
 MEM_CACHE_SIZE_MB=$DEFAULT_MEM_CACHE_SIZE_MB
 DISK_CACHE_DIR=$DEFAULT_DISK_CACHE_DIR
 DISK_CACHE_SIZE_MB=$DEFAULT_DISK_CACHE_SIZE_MB
@@ -104,6 +107,15 @@ do
       PROXY_PORT="$2"
       shift; shift
       ;;
+    -o|--max-object-size)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      MAX_OBJECT_SIZE_MB="$2"
+      shift; shift
+      ;;
+
     -m|--mem-cache)
       if [ $# -lt 2 ]; then
         echo "$EXE: usage error: $1 missing value" >&2
@@ -179,18 +191,22 @@ if [ -n "$SHOW_HELP" ]; then
   cat <<EOF
 Usage: $EXE [options] {ALLOWED_CLIENTS}
 Options:
-  -1 | --stratum-1 HOST  Stratum 1 replica (mandatory; repeat for each)
-  -p | --port NUM        proxy port (default: $DEFAULT_PROXY_PORT)
-  -m | --mem-cache NUM   size of memory cache in MiB (default: $DEFAULT_MEM_CACHE_SIZE_MB)
+  -1 | --stratum-1 HOST       Stratum 1 replica (mandatory; repeat for each)
+  -p | --port NUM             proxy port (default: $DEFAULT_PROXY_PORT)
+  -o | --max-object-size NUM  size of maximum object in MiB (default: $DEFAULT_MAX_OBJECT_SIZE_MB)
+  -m | --mem-cache NUM        size of memory cache in MiB (default: $DEFAULT_MEM_CACHE_SIZE_MB)
 
-  -d | --disk-cache NUM      size of disk cache in MiB (default: $DEFAULT_DISK_CACHE_SIZE_MB)
-       --disk-cache-dir DIR  spool directory (default: $DEFAULT_DISK_CACHE_DIR)
+  -d | --disk-cache NUM       size of disk cache in MiB (default: $DEFAULT_DISK_CACHE_SIZE_MB)
+       --disk-cache-dir DIR   spool directory (default: $DEFAULT_DISK_CACHE_DIR)
 
   -q | --quiet           output nothing unless an error occurs
   -v | --verbose         output extra information when running
        --version         display version information and exit
   -h | --help            display this help and exit
-ALLOWED_CLIENTS: CIDR addresses of clients allowed to use this proxy server
+
+ALLOWED_CLIENTS:
+  CIDR addresses of clients allowed to use this proxy server
+  Must provide at least one address/range. Multiple are allowed.
 
 e.g. $EXE_EXT --stratum-1 s1.example.org \\
        $EXAMPLE_CLIENTS
@@ -555,9 +571,10 @@ http_access deny all
 #----------------
 # Cache properties
 
-minimum_expiry_time 0
+# General
 
-maximum_object_size 1024 MB
+minimum_expiry_time 0
+maximum_object_size $MAX_OBJECT_SIZE_MB MB
 
 # Memory cache
 
@@ -568,8 +585,12 @@ maximum_object_size_in_memory 16 MB
 #
 # cache_dir TYPE DIRECTORY-NAME FS-SPECIFIC-DATA [OPTIONS]
 # cache_dir ufs  DIRECTORY-NAME Mbytes L1 L2     [OPTIONS]
+#
+# L1 and L2 are the number of directories at the two levels:
+# Do not change them after cache has been created, or the cache will be broken.
 
 cache_dir ufs ${DISK_CACHE_DIR} ${DISK_CACHE_SIZE_MB} 16 256
+
 EOF
 
 #----------------------------------------------------------------

@@ -6,6 +6,7 @@
 - Added support for setting the CVMFS_FILE_MBYTE_LIMIT on Stratum 0.
 - Added support for setting the disk cache size on the caching proxy.
 - Created test utilities.
+- Added maximum object size option for cvmfs-proxy-setup.sh.
 
 ## 1.2.0
 

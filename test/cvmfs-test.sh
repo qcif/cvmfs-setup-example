@@ -845,11 +845,12 @@ _run_scripts() {
   local -r START_P=$(date '+%s') # seconds past epoch
 
   _ssh "$LOGIN_PROXY" \
-       sudo ./cvmfs-proxy-setup.sh --stratum-1 "$CVMFS_HOST_STRATUM1" \
+       sudo ./cvmfs-proxy-setup.sh \
+       --stratum-1 "$CVMFS_HOST_STRATUM1" \
+       --max-object-size "$CVMFS_FILE_MBYTE_LIMIT" \
        --disk-cache-dir "$PROXY_DISK_CACHE_DIR" \
        --disk-cache-size "$PROXY_DISK_CACHE_SIZE" \
        $PROXY_ALLOWED_CLIENTS
-       # TODO: --max-object-size $CVMFS_FILE_MBYTE_LIMIT \
 
   _echoN "setup proxy: $(_duration_from "$START_P")"
 
