@@ -196,7 +196,7 @@ Options:
   -o | --max-object-size NUM  size of maximum object in MiB (default: $DEFAULT_MAX_OBJECT_SIZE_MB)
   -m | --mem-cache NUM        size of memory cache in MiB (default: $DEFAULT_MEM_CACHE_SIZE_MB)
 
-  -d | --disk-cache NUM       size of disk cache in MiB (default: $DEFAULT_DISK_CACHE_SIZE_MB)
+  -d | --disk-cache-size NUM  size of disk cache in MiB (default: $DEFAULT_DISK_CACHE_SIZE_MB)
        --disk-cache-dir DIR   spool directory (default: $DEFAULT_DISK_CACHE_DIR)
 
   -q | --quiet           output nothing unless an error occurs
