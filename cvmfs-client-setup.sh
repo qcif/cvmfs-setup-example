@@ -12,7 +12,7 @@
 #================================================================
 
 PROGRAM='cvmfs-client-setup'
-VERSION='1.1.1'
+VERSION='2.0.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -102,7 +102,7 @@ _canonicalise_repo() {
 
 STRATUM_1_HOSTS=
 CVMFS_HTTP_PROXY=
-NO_GEO_API=
+GEO_API=
 CVMFS_QUOTA_LIMIT_MB=$DEFAULT_CACHE_SIZE_MB
 QUIET=
 VERBOSE=
@@ -159,12 +159,12 @@ do
       CVMFS_HTTP_PROXY=DIRECT
       shift
       ;;
-    -n|--no-geo|--no-geo-api)
+    -n|--geo-api)
       if [ $# -lt 2 ]; then
         echo "$EXE: usage error: $1 missing value" >&2
         exit 2
       fi
-      NO_GEO_API=yes
+      GEO_API=yes
       shift
       ;;
     -c|--cache-size)
@@ -216,7 +216,7 @@ Options:
   -1 | --stratum-1 HOST     Stratum 1 replica (mandatory; repeat for each)
   -p | --proxy HOST[:PORT]  proxy server and optional port (repeat for each)*
   -d | --direct             no proxies, connect to Stratum 1 (not recommended)*
-  -n | --no-geo-api         do not use Geo API (default: use Geo API)
+  -g | --geo-api            use Geo API (default: do not use Geo API)
   -c | --cache-size NUM     size of cache in MiB (default: $DEFAULT_CACHE_SIZE_MB)
   -q | --quiet              output nothing unless an error occurs
   -v | --verbose            output extra information when running
@@ -697,7 +697,8 @@ if [ -z "$QUIET" ]; then
 fi
 
 GEO='CVMFS_USE_GEOAPI=yes  # sort servers by geographic distance from client'
-if [ -n "$NO_GEO_API" ]; then
+if [ -z "$GEO_API" ]; then
+  # Do not enable use of Geo API
   GEO="# $GEO"
 fi
 

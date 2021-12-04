@@ -8,6 +8,7 @@
 - Created test utilities.
 - Added maximum object size option for cvmfs-proxy-setup.sh.
 - Added setup-all command to not perform rebuild of VM instances.
+- Changed default for the client setup script to not use Geo API.
 
 ## 1.2.0
 
