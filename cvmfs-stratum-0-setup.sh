@@ -10,7 +10,7 @@
 #================================================================
 
 PROGRAM='cvmfs-stratum-0-setup'
-VERSION='1.2.0'
+VERSION='1.3.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -205,22 +205,20 @@ else
   DISTRO=unknown
 fi
 
-if echo "$DISTRO" | grep -q '^CentOS Linux release 7'; then
-  :
-elif echo "$DISTRO" | grep -q '^CentOS Linux release 8' ; then
-  :
-elif echo "$DISTRO" | grep -q '^CentOS Stream release 8'; then
-  :
-elif [ "$DISTRO" = 'Ubuntu 21.04' ]; then
-  :
-elif [ "$DISTRO" = 'Ubuntu 20.04' ]; then
-  :
-elif [ "$DISTRO" = 'Ubuntu 20.10' ]; then
-  :
-else
-  # Add additional elif-statements for tested systems
-  echo "$EXE: warning: untested system: $DISTRO" >&2
-fi
+case "$DISTRO" in
+  'CentOS Linux release 7.'* \
+    | 'CentOS Linux release 8.'* \
+    | 'CentOS Stream release 8.'* \
+    | 'Rocky Linux release 8.5 (Green Obsidian)' \
+    | 'Ubuntu 21.04' \
+    | 'Ubuntu 20.04' \
+    | 'Ubuntu 20.10' )
+    # Tested distribution (add to above, if others have been tested)
+    ;;
+  *)
+    echo "$EXE: warning: untested system: $DISTRO" >&2
+  ;;
+esac
 
 #----------------------------------------------------------------
 # Check for root privileges

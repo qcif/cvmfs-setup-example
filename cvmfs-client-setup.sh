@@ -12,7 +12,7 @@
 #================================================================
 
 PROGRAM='cvmfs-client-setup'
-VERSION='2.0.0'
+VERSION='2.1.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -159,11 +159,7 @@ do
       CVMFS_HTTP_PROXY=DIRECT
       shift
       ;;
-    -n|--geo-api)
-      if [ $# -lt 2 ]; then
-        echo "$EXE: usage error: $1 missing value" >&2
-        exit 2
-      fi
+    -g|--geo-api)
       GEO_API=yes
       shift
       ;;
@@ -226,7 +222,7 @@ REPO_FQRN: fully qualified repository name
 PUBKEY: file containing the repository's public key
 * = at least one --proxy or --direct is required
 
-e.g. $EXE_EXT --stratum-1 s1.example.org --proxy p.example.org -n
+e.g. $EXE_EXT --stratum-1 s1.example.org --proxy p.example.org \\
        data.example.org.pub tools.example.org:pubkey.pub
 
 EOF
@@ -335,22 +331,20 @@ else
   DISTRO=unknown
 fi
 
-if echo "$DISTRO" | grep -q '^CentOS Linux release 7'; then
-  :
-elif echo "$DISTRO" | grep -q '^CentOS Linux release 8'; then
-  :
-elif echo "$DISTRO" | grep -q '^CentOS Stream release 8'; then
-  :
-elif [ "$DISTRO" = 'Ubuntu 21.04' ]; then
-  :
-elif [ "$DISTRO" = 'Ubuntu 20.10' ]; then
-  :
-elif [ "$DISTRO" = 'Ubuntu 20.04' ]; then
-  :
-else
-  # Add additional elif-statements for tested systems
-  echo "$EXE: warning: untested system: $DISTRO" >&2
-fi
+case "$DISTRO" in
+  'CentOS Linux release 7.'* \
+    | 'CentOS Linux release 8.'* \
+    | 'CentOS Stream release 8.'* \
+    | 'Rocky Linux release 8.5 (Green Obsidian)' \
+    | 'Ubuntu 21.04' \
+    | 'Ubuntu 20.04' \
+    | 'Ubuntu 20.10' )
+    # Tested distribution (add to above, if others have been tested)
+    ;;
+  *)
+    echo "$EXE: warning: untested system: $DISTRO" >&2
+  ;;
+esac
 
 #----------------------------------------------------------------
 # Check for root privileges
@@ -502,7 +496,7 @@ _dpkg_download_and_install() {
 
   else
     if [ -z "$QUIET" ]; then
-      echo "$EXE: repository already installed: $REPO_NAME"
+      echo "$EXE: repository already installed: $PKG_NAME"
     fi
   fi
 }

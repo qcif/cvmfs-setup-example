@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0
+
+- Fixed bug with "already installed" for Ubuntu.
+- Tested with Rocky Linux 8.5.
+
 ## 1.3.0
 
 - Refactored code.
