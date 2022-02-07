@@ -4,9 +4,9 @@ CernVM-FS testing
 This directory contains scripts to simplify testing of the four
 CernVM-FS hosts.
 
-A single command can rebuilding everything from scratch. That is,
+It allows the hosts to be rebuilt by running a single command that:
 
-- rebuild the virtual machines from a Glance image;
+- rebuilds the virtual machines from a Glance image;
 - configure the virtual machines with mounted volume storage;
 - copying the setup scripts to the hosts;
 - running the scripts to set up the hosts and create the repositories;
@@ -14,10 +14,15 @@ A single command can rebuilding everything from scratch. That is,
   the other hosts that needs them.
 
 Most virtual machines have a small boot disk, so volume storage is
-required to support repositories with any serious amount of data.  The
-scripts also automate the configuration of the volume storage and puts
-the CernVM-FS files on it. **This aspect needs to be
-documented. Currently, they have many hard-coded conventions are followed.**
+required to support repositories with any significant amount of data.
+The scripts mounts the volume storage and configures CernVM-FS to put
+its files on it. **This aspect needs to be documented. Currently, it
+has many hard-coded conventions.  The volumes must already have been
+formatted, so all the script does is create mounts for them and puts
+the CernVM-FS files in a specific directory. The content for
+populatating the repositories are expected to be in another directory
+on the volume that is mounted to the Stratum 0 host. See the
+_vm-volume-setup.sh_ and _repo-publish.sh_ scripts for detail.**
 
 The script has been designed for use with virtual machine instances
 running in OpenStack. But if the rebuild step is not used, it should
