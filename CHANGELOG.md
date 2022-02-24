@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0
+
+- Changed test/vm-volume-setup.sh to use bind mounts instead of symlinks.
+
 ## 1.4.0
 
 - Fixed bug with "already installed" for Ubuntu.

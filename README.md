@@ -50,6 +50,10 @@ It is assumed there are four hosts:
 - 10.2.2.2 for a caching proxy
 - 10.3.3.3 for a client (with any other clients being in the range 10.3.3.0/24)
 
+**Important: ** the 10.x.x.x addresses are just examples for this
+document.  You **must** use addresses that are correct for your
+network.
+
 For simplicity, only one Stratum 1 replica and only one caching proxy
 is used in this example. But multiple ones can also be deployed for
 improved redundancy and performance.

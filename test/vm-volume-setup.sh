@@ -1,16 +1,26 @@
 #!/bin/bash
 #
-# Copyright (C) 2021, QCIF Ltd.
+# Mounts volume storage and creates the links needed to offload the
+# large storage requirements of either CernVM-FS or Squid to it.
+#
+# Copyright (C) 2021, 2022, QCIF Ltd.
 #================================================================
 
-PROGRAM='setup-pvol'
-VERSION='1.0.0'
+PROGRAM='vm-volume-setup'
+VERSION='1.1.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
 
+# The expected volume block device and where it will be mounted
+
 BLOCK_DEVICE_NAME=vdb
-VOL_MOUNT_DIR=/pvol
+
+VOL_MOUNT_DIR=/mnt/vol
+
+# If the volume is unformatted, format it using this filesystem.
+
+FORMAT_FILESYSTEM=ext4
 
 #----------------------------------------------------------------
 # Error handling
@@ -137,9 +147,15 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 #----------------------------------------------------------------
+# Mount the volume.
+#
+# If the volume has not been formatted, it will be formatted.
 
 _mount_volume() {
   _echoN "mounting volume storage"
+
+  local DEV
+  DEV="/dev/$BLOCK_DEVICE_NAME"
 
   # Check disk exists
 
@@ -156,28 +172,44 @@ _mount_volume() {
     _exit "partitioned volume not supported: $BLOCK_DEVICE_NAME"
   fi
 
-  # Format volume if needed
+  # Check if volume has been formatted
 
-  # TODO: Check volume has been formatted
-  # to format:  mkfs -t ext4 "/dev/$BLOCK_DEVICE_NAME"
+  if ! lsblk --noheadings -o FSTYPE "$DEV" | grep -qE '^\S+$' ; then
+    # Not formatted
+
+    if [ -n "$INTERACTIVE" ]; then
+      INPUT=yes
+    else
+      read -p "Format $DEV? [y/N] ?" INPUT
+      INPUT=$(echo "$INPUT" | tr A-Z a-z)
+    fi
+
+    if [ "$INPUT" = 'y' ] || [ "$INPUT" = 'yes' ]; then
+      # Permitted to format
+      _echoN "formatting volume: $DEV"
+      mkfs -t $FORMAT_FILESYSTEM "$DEV"
+    else
+      _exit "volume not formatted: $BLOCK_DEVICE_NAME"
+    fi
+  fi
 
   # Create mount directory
 
   if [ ! -e "$VOL_MOUNT_DIR" ]; then
     _echoV "creating mount directory: $VOL_MOUNT_DIR"
-    mkdir "$VOL_MOUNT_DIR"
+    mkdir -p "$VOL_MOUNT_DIR"
   else
     _echoV "already exists: $VOL_MOUNT_DIR" >&2
   fi
 
-  # Configure /etc/fstab
-
-  local DEV
-  DEV="/dev/$BLOCK_DEVICE_NAME"
+  # Configure /etc/fstab to mount the volume
 
   if ! grep -qE "^$DEV" /etc/fstab; then
     _echoV "configuring /etc/fstab to mount $DEV to $VOL_MOUNT_DIR"
+    echo >> /etc/fstab
+    echo '# CernVM-FS example testing' >> /etc/fstab
     echo "$DEV  $VOL_MOUNT_DIR  auto  defaults,nofail  0  2" >> /etc/fstab
+
   else
     # TODO: the above pattern should also match the tab after the name
     _echoV "already configured: /etc/fstab" >&2
@@ -194,100 +226,116 @@ _mount_volume() {
 }
 
 #----------------------------------------------------------------
+# Deletes a directory.
+#
+# If the directory exists, delete it. If the directory does not
+# exist, don't do anything.
+
+_delete_dir() {
+  local -r DIR="$1"
+
+  if [ -d "$DIR" ]; then
+    # Directory exists: delete it
+
+    local INPUT
+
+    if [ -n "$INTERACTIVE" ]; then
+      INPUT=yes
+    else
+      read -p "Delete $DIR? [y/N] ?" INPUT
+      INPUT=$(echo "$INPUT" | tr A-Z a-z)
+    fi
+
+    if [ "$INPUT" = 'y' ] || [ "$INPUT" = 'yes' ]; then
+      _echoV "deleting $DIR"
+      rm -rf "$DIR"
+    fi
+
+  elif [ -e "$DIR" ]; then
+    # Unexpected type of file
+    _exit "not a directory: $DIR"
+  fi
+}
+
+#----------------------------------------------------------------
+# Setup /crv/cvmfs and /var/spool/cvmfs to be on the volume storage.
+#
+# If the directories are not already on it, they are created.  But if
+# they are already on it, they are deleted and recreated (since
+# CernVM-FS will expect them to be initially empty).
 
 _link_cvmfs_directories() {
   _echoN "configuring volume storage for CernVM-FS"
 
-  # Check the symbolic links do not already exist
+  local CVMFS_SRV=/srv/cvmfs
+  local CVMFS_SPOOL=/var/spool/cvmfs
 
-  for SYM in /srv/cvmfs /var/spool/cvmfs ; do
-    if [ -L "$SYM" ]; then
-      # Ignore existing symbolic link
-      :
-    elif [ -e "$SYM" ]; then
-      _exit "directory already exists: $SYM"
+  # Check the two CernVM-FS directories do not already exist
+
+  for DIR in $CVMFS_SRV $CVMFS_SPOOL ; do
+    if [ -e "$DIR" ]; then
+      _exit "directory already exists: $DIR"
     fi
   done
 
-  # Reset CernVM-FS storage directories, if they exist
+  # Setup empty directories on the volume to use
 
-  STORAGE_DIR="$VOL_MOUNT_DIR/storage-cvmfs"
+  local STORAGE_SRV="$VOL_MOUNT_DIR/storage-cvmfs/srv"
+  local STORAGE_SPOOL="$VOL_MOUNT_DIR/storage-cvmfs/spool"
 
-  if [ -e "$STORAGE_DIR" ]; then
-    for DIR in "$STORAGE_DIR/srv" "$STORAGE_DIR/spool"; do
-
-      if [ -e "$DIR" ]; then
-        local INPUT
-
-        if [ -n "$INTERACTIVE" ]; then
-          INPUT=yes
-        else
-          read -p "Delete $DIR? [y/N] ?" INPUT
-          INPUT=$(echo "$INPUT" | tr A-Z a-z)
-        fi
-
-        if [ "$INPUT" = 'y' ] || [ "$INPUT" = 'yes' ]; then
-          _echoV "deleting $DIR"
-          rm -rf "$DIR"
-        fi
-      fi
-
-    done
-  fi
-
-  # Create the directories
-
-  for DIR in "$STORAGE_DIR/srv" "$STORAGE_DIR/spool"; do
-    if [ -e "$DIR" ]; then
-      echo "$EXE: currently script cannot use existing directory: $DIR" >&2
-      echo "$EXE: The directory must be deleted." >&2
-      _exit "aborted"
-      exit 1
-    fi
+  for DIR in "$STORAGE_SRV" "$STORAGE_SPOOL"; do
+    _delete_dir "$DIR"
 
     _echoV "creating directory: $DIR"
     mkdir -p "$DIR"
   done
 
-  # Create symbolic links
+  # Create bind mounts for the CernVM-FS directories to the empty
+  # directories on the volume.
 
-  ln -f -s "$STORAGE_DIR/srv" /srv/cvmfs
-  _echoV "created symbolic link: /srv/cvmfs -> $STORAGE_DIR/srv"
+  _echoV "created bind mount: $CVMFS_SRV -> $STORAGE_SRV"
+  _echoV "created bind mount: $CVMFS_SPOOL -> $STORAGE_SPOOL"
 
-  ln -f -s "$STORAGE_DIR/spool" /var/spool/cvmfs
-  _echoV "created symbolic link: /var/spool/cvmfs -> $STORAGE_DIR/spool"
+  cat >> /etc/fstab <<EOF
+$STORAGE_SRV    $CVMFS_SRV        none    bind    0 0
+$STORAGE_SPOOL  $CVMFS_SPOOL  none    bind    0 0
+EOF
+
+  mkdir -p  "$CVMFS_SRV"
+  mount --target "$CVMFS_SRV"
+
+  mkdir -p  "$CVMFS_SPOOL"
+  mount --target "$CVMFS_SPOOL"
 }
 
 #----------------------------------------------------------------
+# Setup a directory for the Squid disk cache to be on the volume storage.
+#
+# If the enclosing directory is not already on it, it is created. If
+# the spool directtory itself already exists, delete it.
+#
+# The spool directory is not created/recreated, since Squid will
+# create it.
 
 _link_squid_directory() {
   _echoN "configuring volume storage for Squid"
 
-  # Delete Squid spool directory, if it exists
+  local -r STORAGE_DIR="$VOL_MOUNT_DIR/storage-squid"
+  local -r SPOOL_DIR="$STORAGE_DIR/spool"
 
-  STORAGE_DIR="$VOL_MOUNT_DIR/storage-squid"
+  if [ -d "$STORAGE_DIR" ]; then
+    # Enclosing storage directory exists
 
-  if [ -e "$STORAGE_DIR" ]; then
+    _delete_dir "$SPOOL_DIR"
 
-    local -r DIR="$STORAGE_DIR/spool"
+    # Note: don't recreate the spool directory: Squid will create it
 
-      if [ -e "$DIR" ]; then
-        local INPUT
-
-        if [ -n "$INTERACTIVE" ]; then
-          INPUT=yes
-        else
-          read -p "Delete $DIR? [y/N] ?" INPUT
-          INPUT=$(echo "$INPUT" | tr A-Z a-z)
-        fi
-
-        if [ "$INPUT" = 'y' ] || [ "$INPUT" = 'yes' ]; then
-          _echoV "deleting $DIR"
-          rm -rf "$DIR"
-        fi
-      fi
+  elif [ -e "$STORAGE_DIR" ]; then
+    # Unexpected type of file
+    _exit "not a directory: $STORAGE_DIR"
 
   else
+    # Create enclosing directory
     _echoV "creating directory: $STORAGE_DIR"
     mkdir -p "$STORAGE_DIR"
   fi
@@ -295,7 +343,13 @@ _link_squid_directory() {
 
 #----------------------------------------------------------------
 
+# Common to both: mount the volume storage
+
 _mount_volume
+
+# Create directories to offload the bulk of the files to the volume.
+# Obviously, this depends on whether the host will be running CernVM-FS
+# or Squid.
 
 case "$HOST_TYPE" in
   cvmfs)
