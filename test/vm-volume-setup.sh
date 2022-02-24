@@ -16,7 +16,7 @@ EXE_EXT=$(basename "$0")
 
 BLOCK_DEVICE_NAME=vdb
 
-VOL_MOUNT_DIR=/mnt/vol
+VOL_MOUNT_DIR=/pvol
 
 # If the volume is unformatted, format it using this filesystem.
 
