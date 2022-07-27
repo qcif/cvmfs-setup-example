@@ -6,11 +6,11 @@
 #
 # Note: this is a POSIX "sh" script for maximum portability.
 #
-# Copyright (C) 2021, QCIF Ltd.
+# Copyright (C) 2021, 2022, QCIF Ltd.
 #================================================================
 
 PROGRAM='cvmfs-stratum-0-setup'
-VERSION='1.3.0'
+VERSION='1.4.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -208,8 +208,10 @@ fi
 case "$DISTRO" in
   'CentOS Linux release 7.'* \
     | 'CentOS Linux release 8.'* \
-    | 'CentOS Stream release 8.'* \
+    | 'CentOS Stream release 8' \
     | 'Rocky Linux release 8.5 (Green Obsidian)' \
+    | 'Rocky Linux release 8.6 (Green Obsidian)' \
+    | 'Rocky Linux release 9.0 (Blue Onyx)' \
     | 'Ubuntu 21.04' \
     | 'Ubuntu 20.04' \
     | 'Ubuntu 20.10' )

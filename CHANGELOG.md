@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.0
+
+- Updated support for Rocky Linux 9.
+- Documented use with repositories from multiple organisations.
+
 ## 1.5.0
 
 - Changed test/vm-volume-setup.sh to use bind mounts instead of symlinks.

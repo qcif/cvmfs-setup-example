@@ -206,6 +206,29 @@ new_repository  README.txt
 The _monitor-file.sh_ script can be used to detect when a file changes in
 the client, instead of manually waiting for it to change.
 
+## Configuring repositories from multiple organisations
+
+To use repositories from more than one organisation, configure the
+proxies and clients to support them.
+
+### Proxy for multiple organisations
+
+To support multiple organisations, provide **all** the Stratum 1 hosts
+to the _cvmfs-proxy-setup.sh_ script.
+
+The proxy does not make a distinction between which Stratum 1 host is
+used for which organisation's repositories.
+
+### Client for multiple organisations
+
+To support multiple organisations, run the _cvmfs-client-setup.sh_
+script multiple times: once for each organisation. Configure only one
+organisation per run. That is, the Stratum 1 hosts and repositories
+must be for the same organisation.
+
+The client does require the repositories to be associated with their
+correct Statum 1 hosts.
+
 ## Requirements
 
 ### Supported distributions
@@ -218,6 +241,7 @@ The setup scripts have been tested on:
 - CentOS 7
 - CentOS 8
 - CentOS Stream 8
+- CentOS Stream 9
 - Ubuntu 20.04
 - Ubuntu 20.10
 - Ubuntu 21.04

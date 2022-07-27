@@ -2,17 +2,13 @@
 #
 # Create a client host.
 #
-# Note: currently, this script only works when all the repositories
-# are from the same organisation, and uses the same Stratum 0 and
-# Stratum 1 hosts.
-#
 # Note: this is a POSIX "sh" script for maximum portability.
 #
-# Copyright (C) 2021, QCIF Ltd.
+# Copyright (C) 2021, 2022, QCIF Ltd.
 #================================================================
 
 PROGRAM='cvmfs-client-setup'
-VERSION='2.1.0'
+VERSION='2.2.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -334,8 +330,10 @@ fi
 case "$DISTRO" in
   'CentOS Linux release 7.'* \
     | 'CentOS Linux release 8.'* \
-    | 'CentOS Stream release 8.'* \
+    | 'CentOS Stream release 8' \
     | 'Rocky Linux release 8.5 (Green Obsidian)' \
+    | 'Rocky Linux release 8.6 (Green Obsidian)' \
+    | 'Rocky Linux release 9.0 (Blue Onyx)' \
     | 'Ubuntu 21.04' \
     | 'Ubuntu 20.04' \
     | 'Ubuntu 20.10' )
@@ -706,13 +704,15 @@ cat > "$FILE" <<EOF
 # groups are separated from each other by a semicolon character ";".
 # A proxy group can consist of only one proxy.
 
-CVMFS_HTTP_PROXY='${CVMFS_HTTP_PROXY}'
+CVMFS_HTTP_PROXY=$CVMFS_HTTP_PROXY
 
 CVMFS_QUOTA_LIMIT=${CVMFS_QUOTA_LIMIT_MB}  # cache size in MiB (recommended: 4GB to 50GB)
 
 $GEO
 
-CVMFS_REPOSITORIES='$CVMFS_REPOSITORIES'
+# Configured repositories
+
+CVMFS_REPOSITORIES=$CVMFS_REPOSITORIES
 EOF
 
 #----------------------------------------------------------------
