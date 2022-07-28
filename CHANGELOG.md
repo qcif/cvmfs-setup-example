@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.0
+
+- Changed multiple proxies to be put in one group instead of multiple groups.
+
 ## 1.6.0
 
 - Updated support for Rocky Linux 9.
