@@ -30,7 +30,7 @@
 #================================================================
 
 PROGRAM='cvmfs-proxy-setup'
-VERSION='1.5.0'
+VERSION='1.5.1'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -94,6 +94,10 @@ do
     -1|--s1|--stratum1|--stratum-1)
       if [ $# -lt 2 ]; then
         echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      if [ -z "$2" ]; then
+        echo "$EXE: stratum 1 host cannot be an empty string" >&2
         exit 2
       fi
       STRATUM_ONE_HOSTS="$STRATUM_ONE_HOSTS $2"

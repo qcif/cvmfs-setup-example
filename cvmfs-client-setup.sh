@@ -8,7 +8,7 @@
 #================================================================
 
 PROGRAM='cvmfs-client-setup'
-VERSION='3.0.0'
+VERSION='3.0.1'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -112,6 +112,10 @@ while [ $# -gt 0 ]
 do
   case "$1" in
     -1|--s1|--stratum1|--stratum-1)
+      if [ -z "$2" ]; then
+        echo "$EXE: usage error: stratum 1 host cannot be an empty string" >&2
+        exit 2
+      fi
       STRATUM_1_HOSTS="$STRATUM_1_HOSTS $2"
       shift; shift
       ;;
@@ -133,6 +137,9 @@ do
       if echo "$2" | grep -q ':'; then
         # Value has a port number
         P="http://$2"
+      elif [ -z "$2" ]; then
+        echo "$EXE: usage error: proxy cannot be an empty string" >&2
+        exit 2
       else
         # Use default port number
         P="http://$2:$DEFAULT_PROXY_PORT"
@@ -200,8 +207,12 @@ do
       exit 2
       ;;
     *)
-      # Argument
+      # Argument: use as repository
 
+      if [ -z "$1" ]; then
+        echo "$EXE: usage error: repository cannot be an empty string" >&2
+        exit 2
+      fi
       REPOS="$REPOS $(_canonicalise_repo "$1")"
 
       shift

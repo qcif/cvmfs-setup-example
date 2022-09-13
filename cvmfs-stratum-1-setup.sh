@@ -333,6 +333,9 @@ for REPO in $REPOS; do
        "http://$STRATUM_0_HOST/cvmfs/$FULLNAME/.cvmfs_master_replica" \
        >/dev/null 2>&1; then
     echo "$EXE: error: repository does not exist on the Stratum 0: $FULLNAME at $STRATUM_0_HOST" >&2
+    echo "  1. Is the host \"$STRATUM_0_HOST\" running?" >&2
+    echo "  2. Can HTTP port 80 on it be contacted from this host?" >&2
+    echo "  3. Is the repository name \"$FULLNAME\" correct?" >&2
     exit 1
   fi
 done
