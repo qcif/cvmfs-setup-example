@@ -17,7 +17,7 @@
 #================================================================
 
 PROGRAM='cvmfs-stratum-1-setup'
-VERSION='1.3.0'
+VERSION='1.4.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -133,6 +133,7 @@ REPO_USER="$DEFAULT_REPO_USER"
 SERVERNAME="$DEFAULT_SERVERNAME"
 REFRESH_MINUTES=$DEFAULT_REFRESH_MINUTES
 MEM_CACHE_SIZE_MB=$DEFAULT_MEM_CACHE_SIZE_MB
+CVMFS_VERSION=
 QUIET=
 VERBOSE=
 VERY_VERBOSE=
@@ -149,7 +150,7 @@ do
         exit 2
       fi
       STRATUM_0_HOST="$2"
-      shift; shift
+      shift
       ;;
     -g|--geo|--geo-api|--geo-api-key)
       if [ $# -lt 2 ]; then
@@ -157,7 +158,7 @@ do
         exit 2
       fi
       CVMFS_GEO_LICENSE_KEY="$2"
-      shift; shift
+      shift
       ;;
     -s|--servername)
       if [ $# -lt 2 ]; then
@@ -165,7 +166,7 @@ do
         exit 2
       fi
       SERVERNAME="$2"
-      shift; shift
+      shift
       ;;
     -u|--user)
       if [ $# -lt 2 ]; then
@@ -173,7 +174,7 @@ do
         exit 2
       fi
       REPO_USER="$2"
-      shift; shift
+      shift
       ;;
     -r|--refresh)
       if [ $# -lt 2 ]; then
@@ -181,7 +182,7 @@ do
         exit 2
       fi
       REFRESH_MINUTES="$2"
-      shift; shift;
+      shift
       ;;
     -m|--mem-cache)
       if [ $# -lt 2 ]; then
@@ -189,11 +190,18 @@ do
         exit 2
       fi
       MEM_CACHE_SIZE_MB="$2"
-      shift; shift
+      shift
+      ;;
+    -C|--cvmfs-version)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      CVMFS_VERSION="$2"
+      shift
       ;;
     -q|--quiet)
       QUIET=yes
-      shift
       ;;
     -v|--verbose)
       if [ -z "$VERBOSE" ]; then
@@ -201,15 +209,12 @@ do
       else
         VERY_VERBOSE=yes
       fi
-      shift
       ;;
     --version)
       SHOW_VERSION=yes
-      shift
       ;;
     -h|--help)
       SHOW_HELP=yes
-      shift
       ;;
     -*)
       echo "$EXE: usage error: unknown option: $1" >&2
@@ -219,26 +224,26 @@ do
       # Argument
 
       REPOS="$REPOS $(_canonicalise_repo "$1")"
-
-      shift
       ;;
   esac
+
+  shift
 done
 
 if [ -n "$SHOW_HELP" ]; then
   cat <<EOF
 Usage: $EXE_EXT [options] { REPO_FQRN.pub | REPO_FQRN:PUBKEY }
 Options:
-  -0 | --stratum-0 HOST   Stratum 0 central server (mandatory)
-  -g | --geo-api-key KEY  Geo API license_key (optional)
-  -s | --servername NAME  servername or IP address of this host (optional)
-  -u | --user ID          repository owner account (default: $DEFAULT_REPO_USER)
-  -r | --refresh MIN      minutes step for replica snapshots (default: $DEFAULT_REFRESH_MINUTES)
-  -m | --mem-cache NUM    size of memory cache in MiB (default: $DEFAULT_MEM_CACHE_SIZE_MB)
-  -q | --quiet            output nothng unless an error occurs
-  -v | --verbose          output extra information when running
-       --version          display version information and exit
-  -h | --help             display this help and exit
+  -0 | --stratum-0 HOST     Stratum 0 central server (mandatory)
+  -g | --geo-api-key KEY    Geo API license_key (optional)
+  -s | --servername NAME    servername or IP address of this host (optional)
+  -u | --user ID            repository owner account (default: $DEFAULT_REPO_USER)
+  -r | --refresh MIN        minutes step for replica snapshots (default: $DEFAULT_REFRESH_MINUTES)
+  -m | --mem-cache NUM      size of memory cache in MiB (default: $DEFAULT_MEM_CACHE_SIZE_MB)
+  -q | --quiet              output nothng unless an error occurs
+  -v | --verbose            output extra information when running
+       --version            display version information and exit
+  -h | --help               display this help and exit
 REPO_FQRN: fully qualified repository name
 PUBKEY: file containing the repository's public key
 
@@ -256,6 +261,12 @@ To manually synchronise repository:
 
 EOF
   fi
+
+  # Experimental feature: not working on Ubuntu yet, so not mentioned in help
+  #
+  # -C | --cvmfs-version VER  version, and optional release, of cvmfs to install
+  #                           (default: latest version and release)
+
   exit 0
 fi
 
@@ -362,7 +373,9 @@ case "$DISTRO" in
     | 'CentOS Stream release 8' \
     | 'Rocky Linux release 8.5 (Green Obsidian)' \
     | 'Rocky Linux release 8.6 (Green Obsidian)' \
+    | 'Rocky Linux release 8.7 (Green Obsidian)' \
     | 'Rocky Linux release 9.0 (Blue Onyx)' \
+    | 'Ubuntu 22.04' \
     | 'Ubuntu 21.04' \
     | 'Ubuntu 20.04' \
     | 'Ubuntu 20.10' )
@@ -586,15 +599,7 @@ if which $YUM >/dev/null 2>&1; then
   # Installing for Fedora based distributions
 
   if _yum_not_installed 'cvmfs' || _yum_not_installed 'cvmfs-server' ; then
-
-    # Get cvmfs-release-latest repo
-
-    _yum_install_repo 'cernvm' \
-      https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
-
-    # Installing cvmfs
-
-    _yum_install cvmfs
+    # Install cvmfs and cvmfs-server
 
     # Installing dependencies that cvmfs-server requires
 
@@ -607,9 +612,29 @@ if which $YUM >/dev/null 2>&1; then
       _yum_install epel-release
     fi
 
-    # Installing cvmfs-server
+    # Get cvmfs-release-latest repo
 
-    _yum_install cvmfs-server
+    _yum_install_repo 'cernvm' \
+      https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
+
+    # Installing cvmfs and cvmfs-server
+
+    CVMFS_DNF_VERSION_SUFFIX=
+    if [ -n "$CVMFS_VERSION" ]; then
+      # e.g. version only "-2.1.0", or with release "-2.1.0-1"
+      CVMFS_DNF_VERSION_SUFFIX="-$CVMFS_VERSION"
+    fi
+
+    _yum_install cvmfs$CVMFS_DNF_VERSION_SUFFIX
+    _yum_install cvmfs-server$CVMFS_DNF_VERSION_SUFFIX
+
+    if [ -n "$VERBOSE" ]; then
+      echo "$EXE: installed:"
+      rpm -qa \
+          --queryformat '%{NAME}-%{VERSION}-%{RELEASE} (%{BUILDTIME:day})\n' \
+          cvmfs\* | sort | sed 's/^/  /'
+    fi
+
   else
     if [ -z "$QUIET" ]; then
       echo "$EXE: package already installed: cvmfs"
@@ -647,6 +672,24 @@ elif which apt-get >/dev/null 2>&1; then
   # Installing for Debian based distributions
 
   if _dpkg_not_installed 'cvmfs' || _dpkg_not_installed 'cvmfs-server'; then
+    # Install cvmfs and cvmfs-server
+
+    # Calculate the suffix to specify the version and optional release
+    #
+    # This allows the specific version (with optional release) to be
+    # specified on the command line. For example, instead of
+    # installing "cvmfs" it can be requested to install "cvmfs-2.10.0"
+    # or "cvmfs-2.10.0-1" (see the package specification in the "dnf"
+    # man page).
+    #
+    # The "CVMFS_APT_VERSION_SUFFIX" starts with the equal sign to
+    # separate it from the package name. The empty string means the
+    # latest version.
+
+    CVMFS_APT_VERSION_SUFFIX=
+    if [ -n "$CVMFS_VERSION" ]; then
+      CVMFS_APT_VERSION_SUFFIX="=$CVMFS_VERSION"
+    fi
 
     # Get cvmfs-releast-latest-all repo
 
@@ -657,8 +700,8 @@ elif which apt-get >/dev/null 2>&1; then
 
     _apt_get_update
 
-    _apt_get_install cvmfs
-    _apt_get_install cvmfs-server
+    _apt_get_install cvmfs$CVMFS_APT_VERSION_SUFFIX
+    _apt_get_install cvmfs-server$CVMFS_APT_VERSION_SUFFIX
   else
     if [ -z "$QUIET" ]; then
       echo "$EXE: package already installed: cvmfs"

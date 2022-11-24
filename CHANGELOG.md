@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0
+
+- Created troubleshooting document.
+- Added experimental feature to install a specific version of CernVM-FS.
+- Added more tested distributions.
+
 ## 1.7.0
 
 - Changed multiple proxies to be put in one group instead of multiple groups.

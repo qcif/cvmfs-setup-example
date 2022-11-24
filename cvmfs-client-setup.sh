@@ -8,7 +8,7 @@
 #================================================================
 
 PROGRAM='cvmfs-client-setup'
-VERSION='3.0.1'
+VERSION='3.1.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -101,6 +101,7 @@ CVMFS_HTTP_PROXY=
 FIXED_PROXY_ORDER=
 GEO_API=
 CVMFS_QUOTA_LIMIT_MB=$DEFAULT_CACHE_SIZE_MB
+CVMFS_VERSION=
 QUIET=
 VERBOSE=
 VERY_VERBOSE=
@@ -117,7 +118,7 @@ do
         exit 2
       fi
       STRATUM_1_HOSTS="$STRATUM_1_HOSTS $2"
-      shift; shift
+      shift
       ;;
     -p|--proxy)
       if [ "$CVMFS_HTTP_PROXY" = 'DIRECT' ]; then
@@ -156,11 +157,10 @@ do
         # works is found.
       fi
 
-      shift; shift
+      shift
       ;;
     --fixed-proxy-order)
       FIXED_PROXY_ORDER=yes
-      shift
       ;;
     -d|--direct)
       if [ -n "$CVMFS_HTTP_PROXY" ]; then
@@ -168,11 +168,9 @@ do
         exit 2
       fi
       CVMFS_HTTP_PROXY=DIRECT
-      shift
       ;;
     -g|--geo-api)
       GEO_API=yes
-      shift
       ;;
     -c|--cache-size)
       if [ $# -lt 2 ]; then
@@ -180,11 +178,18 @@ do
         exit 2
       fi
       CVMFS_QUOTA_LIMIT_MB="$2"
-      shift; shift
+      shift
+      ;;
+    -C|--cvmfs-version)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      CVMFS_VERSION="$2"
+      shift
       ;;
     -q|--quiet)
       QUIET=yes
-      shift
       ;;
     -v|--verbose)
       if [ -z "$VERBOSE" ]; then
@@ -192,15 +197,12 @@ do
       else
         VERY_VERBOSE=yes
       fi
-      shift
       ;;
     --version)
       SHOW_VERSION=yes
-      shift
       ;;
     -h|--help)
       SHOW_HELP=yes
-      shift
       ;;
     -*)
       echo "$EXE: usage error: unknown option: $1" >&2
@@ -214,10 +216,10 @@ do
         exit 2
       fi
       REPOS="$REPOS $(_canonicalise_repo "$1")"
-
-      shift
       ;;
   esac
+
+  shift
 done
 
 if [ -n "$SHOW_HELP" ]; then
@@ -250,6 +252,11 @@ Reload repository:
 
 EOF
   fi
+
+  # Experimental feature: not working on Ubuntu yet, so not mentioned in help
+  #
+  # -C | --cvmfs-version VER  version, and optional release, of cvmfs to install
+  #                           (default: latest version and release)
 
   exit 0
 fi
@@ -290,7 +297,7 @@ if [ -n "$FIXED_PROXY_ORDER" ]; then
   # the same group) to them being in separate groups.
   #
   # https://cvmfs.readthedocs.io/en/stable/cpt-configure.html#proxy-lists
-  
+
   CVMFS_HTTP_PROXY=$(echo "$CVMFS_HTTP_PROXY" | sed 's/|/;/g')
 fi
 
@@ -362,7 +369,9 @@ case "$DISTRO" in
     | 'CentOS Stream release 8' \
     | 'Rocky Linux release 8.5 (Green Obsidian)' \
     | 'Rocky Linux release 8.6 (Green Obsidian)' \
+    | 'Rocky Linux release 8.7 (Green Obsidian)' \
     | 'Rocky Linux release 9.0 (Blue Onyx)' \
+    | 'Ubuntu 22.04' \
     | 'Ubuntu 21.04' \
     | 'Ubuntu 20.04' \
     | 'Ubuntu 20.10' )
@@ -579,10 +588,27 @@ if which $YUM >/dev/null 2>&1; then
 
   if _yum_not_installed 'cvmfs'; then
 
+    # Get cvmfs-release-latest repo
+
     _yum_install_repo 'cernvm' \
       https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
 
-    _yum_install cvmfs
+    # Install cvmfs
+
+    CVMFS_DNF_VERSION_SUFFIX=
+    if [ -n "$CVMFS_VERSION" ]; then
+      # e.g. version only "-2.1.0", or with release "-2.1.0-1"
+      CVMFS_DNF_VERSION_SUFFIX="-$CVMFS_VERSION"
+    fi
+
+    _yum_install cvmfs$CVMFS_DNF_VERSION_SUFFIX
+
+    if [ -n "$VERBOSE" ]; then
+      echo "$EXE: installed:"
+      rpm -qa \
+          --queryformat '%{NAME}-%{VERSION}-%{RELEASE} (%{BUILDTIME:day})\n' \
+          cvmfs\* | sort | sed 's/^/  /'
+    fi
 
   else
     if [ -z "$QUIET" ]; then
@@ -594,13 +620,23 @@ elif which apt-get >/dev/null 2>&1; then
   # Installing for Debian based distributions
 
   if _dpkg_not_installed 'cvmfs' ; then
+    # Install cvmfs
+
+    # Get cvmfs-release-latest-all repo
 
     _dpkg_download_and_install 'cvmfs-release' \
       https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest_all.deb
 
     _apt_get_update
 
-    _apt_get_install cvmfs
+    # Install cvmfs
+
+    CVMFS_APT_VERSION_SUFFIX=
+    if [ -n "$CVMFS_VERSION" ]; then
+      CVMFS_APT_VERSION_SUFFIX="=$CVMFS_VERSION"
+    fi
+
+    _apt_get_install cvmfs$CVMFS_APT_VERSION_SUFFIX
 
   else
     if [ -z "$QUIET" ]; then

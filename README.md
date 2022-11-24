@@ -292,6 +292,10 @@ a reminder of some useful/related CernVM-FS commands.
 Try running the same setup script again. It seems to work the second
 time it is run.
 
+### Troubleshooting process
+
+See [troubleshooting.md](troubleshooting.md) for details.
+
 ## Acknowledgements
 
 This work is supported by the Australian BioCommons which is enabled

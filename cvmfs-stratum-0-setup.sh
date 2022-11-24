@@ -10,7 +10,7 @@
 #================================================================
 
 PROGRAM='cvmfs-stratum-0-setup'
-VERSION='1.4.0'
+VERSION='1.5.0'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -50,6 +50,7 @@ set -u # fail on attempts to expand undefined environment variables
 
 REPO_USER="$DEFAULT_REPO_USER"
 CVMFS_FILE_MBYTE_LIMIT=$DEFAULT_CVMFS_FILE_MBYTE_LIMIT
+CVMFS_VERSION=
 QUIET=
 VERBOSE=
 VERY_VERBOSE=
@@ -66,7 +67,7 @@ do
         exit 2
       fi
       REPO_USER="$2"
-      shift; shift
+      shift
       ;;
     --file-limit)
       if [ $# -lt 2 ]; then
@@ -74,11 +75,18 @@ do
         exit 2
       fi
       CVMFS_FILE_MBYTE_LIMIT="$2"
-      shift; shift
+      shift
+      ;;
+    -C|--cvmfs-version)
+      if [ $# -lt 2 ]; then
+        echo "$EXE: usage error: $1 missing value" >&2
+        exit 2
+      fi
+      CVMFS_VERSION="$2"
+      shift
       ;;
     -q|--quiet)
       QUIET=yes
-      shift
       ;;
     -v|--verbose)
       if [ -z "$VERBOSE" ]; then
@@ -86,15 +94,12 @@ do
       else
         VERY_VERBOSE=yes
       fi
-      shift
       ;;
     --version)
       SHOW_VERSION=yes
-      shift
       ;;
     -h|--help)
       SHOW_HELP=yes
-      shift
       ;;
     -*)
       echo "$EXE: usage error: unknown option: $1" >&2
@@ -104,22 +109,22 @@ do
       # Argument
 
       REPO_IDS="$REPO_IDS $1"
-
-      shift
       ;;
   esac
+
+  shift
 done
 
 if [ -n "$SHOW_HELP" ]; then
   cat <<EOF
 Usage: $EXE_EXT [options] {REPOSITORY_IDS}
 Options:
-  -u | --user ID          repository owner account (default: $DEFAULT_REPO_USER)
-       --file-limit SIZE  publish file size limit in MiB (default: $DEFAULT_CVMFS_FILE_MBYTE_LIMIT MiB)
-  -q | --quiet            output nothing unless an error occurs
-  -v | --verbose          output extra information when running
-       --version          display version information and exit
-  -h | --help             display this help and exit
+  -u | --user ID            repository owner account (default: $DEFAULT_REPO_USER)
+       --file-limit SIZE    publish file size limit in MiB (default: $DEFAULT_CVMFS_FILE_MBYTE_LIMIT MiB)
+  -q | --quiet              output nothing unless an error occurs
+  -v | --verbose            output extra information when running
+       --version            display version information and exit
+  -h | --help               display this help and exit
 REPOSITORY_IDS: fully qualified repository names of the repositories to create
 
 e.g. $EXE_EXT \\
@@ -144,6 +149,11 @@ Important: Don't forget to backup the master keys from: /etc/cvmfs/keys
 
 EOF
   fi
+
+  # Experimental feature: not working on Ubuntu yet, so not mentioned in help
+  #
+  #    -C | --cvmfs-version VER  version, and optional release, of cvmfs to install
+  #                            (default: latest version and release)
 
   exit 0
 fi
@@ -211,7 +221,9 @@ case "$DISTRO" in
     | 'CentOS Stream release 8' \
     | 'Rocky Linux release 8.5 (Green Obsidian)' \
     | 'Rocky Linux release 8.6 (Green Obsidian)' \
+    | 'Rocky Linux release 8.7 (Green Obsidian)' \
     | 'Rocky Linux release 9.0 (Blue Onyx)' \
+    | 'Ubuntu 22.04' \
     | 'Ubuntu 21.04' \
     | 'Ubuntu 20.04' \
     | 'Ubuntu 20.10' )
@@ -427,15 +439,7 @@ if which $YUM >/dev/null 2>&1; then
   # Installing for Fedora based distributions
 
   if _yum_not_installed 'cvmfs' || _yum_not_installed 'cvmfs-server' ; then
-
-    # Get cvmfs-release-latest repo
-
-    _yum_install_repo 'cernvm' \
-      https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
-
-    # Installing cvmfs
-
-    _yum_install cvmfs
+    # Install cvmfs and cvmfs-server
 
     # Installing dependencies that cvmfs-server requires
 
@@ -448,9 +452,29 @@ if which $YUM >/dev/null 2>&1; then
       _yum_install epel-release
     fi
 
-    # Installing cvmfs-server
+    # Get cvmfs-release-latest repo
 
-    _yum_install cvmfs-server
+    _yum_install_repo 'cernvm' \
+      https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest.noarch.rpm
+
+    # Installing cvmfs and cvmfs-server
+
+    CVMFS_DNF_VERSION_SUFFIX=
+    if [ -n "$CVMFS_VERSION" ]; then
+      # e.g. version only "-2.1.0", or with release "-2.1.0-1"
+      CVMFS_DNF_VERSION_SUFFIX="-$CVMFS_VERSION"
+    fi
+
+    _yum_install cvmfs$CVMFS_DNF_VERSION_SUFFIX
+    _yum_install cvmfs-server$CVMFS_DNF_VERSION_SUFFIX
+
+    if [ -n "$VERBOSE" ]; then
+      echo "$EXE: installed:"
+      rpm -qa \
+          --queryformat '%{NAME}-%{VERSION}-%{RELEASE} (%{BUILDTIME:day})\n' \
+          cvmfs\* | sort | sed 's/^/  /'
+    fi
+
   else
     if [ -z "$QUIET" ]; then
       echo "$EXE: package already installed: cvmfs"
@@ -467,18 +491,24 @@ elif which apt-get >/dev/null 2>&1; then
   # Installing for Debian based distributions
 
   if _dpkg_not_installed 'cvmfs' || _dpkg_not_installed 'cvmfs-server'; then
+    # Install cvmfs and cvmfs-server
 
     # Get cvmfs-release-latest-all repo
 
     _dpkg_download_and_install 'cvmfs-release' \
       https://ecsft.cern.ch/dist/cvmfs/cvmfs-release/cvmfs-release-latest_all.deb
 
-    # Update and install cvmfs and cvmfs-server
-
     _apt_get_update
 
-    _apt_get_install cvmfs
-    _apt_get_install cvmfs-server
+    # Install cvmfs and cvmfs-server
+
+    CVMFS_APT_VERSION_SUFFIX=
+    if [ -n "$CVMFS_VERSION" ]; then
+      CVMFS_APT_VERSION_SUFFIX="=$CVMFS_VERSION"
+    fi
+
+    _apt_get_install cvmfs$CVMFS_APT_VERSION_SUFFIX
+    _apt_get_install cvmfs-server$CVMFS_APT_VERSION_SUFFIX
   else
     if [ -z "$QUIET" ]; then
       echo "$EXE: package already installed: cvmfs"
@@ -650,7 +680,7 @@ if [ -n "$CREATED_FULLNAMES" ]; then
 
   for FULLNAME in $CREATED_FULLNAMES; do
     if [ -z "$QUIET" ]; then
-      echo "$EXE: adding cron job in $FILE to resign whitelist for $FULLNAME"
+      echo "$EXE: adding cron job in $FILE to sign whitelist for $FULLNAME"
     fi
 
     # min hour day month day-of-week (i.e. 9pm every Sunday)

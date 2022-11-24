@@ -30,7 +30,7 @@
 #================================================================
 
 PROGRAM='cvmfs-proxy-setup'
-VERSION='1.5.1'
+VERSION='1.5.2'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -286,7 +286,9 @@ case "$DISTRO" in
     | 'CentOS Stream release 9' \
     | 'Rocky Linux release 8.5 (Green Obsidian)' \
     | 'Rocky Linux release 8.6 (Green Obsidian)' \
+    | 'Rocky Linux release 8.7 (Green Obsidian)' \
     | 'Rocky Linux release 9.0 (Blue Onyx)' \
+    | 'Ubuntu 22.04' \
     | 'Ubuntu 21.04' \
     | 'Ubuntu 20.04' \
     | 'Ubuntu 20.10' )
