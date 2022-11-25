@@ -5,6 +5,8 @@
 - Created troubleshooting document.
 - Added experimental feature to install a specific version of CernVM-FS.
 - Added more tested distributions.
+- Disabling default domain configurations.
+- Fixed bug with warning message for already installed package in Ubuntu.
 
 ## 1.7.0
 

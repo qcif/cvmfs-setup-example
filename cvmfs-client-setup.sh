@@ -650,6 +650,25 @@ else
 fi
 
 #----------------------------------------------------------------
+# Disable default repositories
+#
+# Disable the configurations of the CERN and EGI repositories that
+# comes with the "cvmfs" package, since the example proxy will not be
+# configured to support them.
+
+for F in \
+  /etc/cvmfs/config.d/cvmfs-config.cern.ch.conf \
+    /etc/cvmfs/default.d/50-cern-debian.conf \
+    /etc/cvmfs/domain.d/cern.ch.conf \
+    /etc/cvmfs/domain.d/egi.eu.conf \
+    /etc/cvmfs/domain.d/opensciencegrid.org.conf \
+  ; do
+  if [ -f "$F" ]; then
+    mv "$F" "$F-DISABLED"
+  fi
+done
+
+#----------------------------------------------------------------
 # Configure CernVM-FS
 
 #----------------
