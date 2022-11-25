@@ -532,7 +532,7 @@ _dpkg_download_and_install() {
 
   else
     if [ -z "$QUIET" ]; then
-      echo "$EXE: repository already installed: $PKG_NAME"
+      echo "$EXE: package already installed: $PKG_NAME"
     fi
   fi
 }
