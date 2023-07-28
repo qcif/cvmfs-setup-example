@@ -10,7 +10,7 @@
 #================================================================
 
 PROGRAM='cvmfs-stratum-0-setup'
-VERSION='1.5.0'
+VERSION='1.5.1'
 
 EXE=$(basename "$0" .sh)
 EXE_EXT=$(basename "$0")
@@ -215,24 +215,25 @@ else
   DISTRO=unknown
 fi
 
-case "$DISTRO" in
-  'CentOS Linux release 7.'* \
-    | 'CentOS Linux release 8.'* \
-    | 'CentOS Stream release 8' \
-    | 'Rocky Linux release 8.5 (Green Obsidian)' \
-    | 'Rocky Linux release 8.6 (Green Obsidian)' \
-    | 'Rocky Linux release 8.7 (Green Obsidian)' \
-    | 'Rocky Linux release 9.0 (Blue Onyx)' \
-    | 'Ubuntu 22.04' \
-    | 'Ubuntu 21.04' \
-    | 'Ubuntu 20.04' \
-    | 'Ubuntu 20.10' )
-    # Tested distribution (add to above, if others have been tested)
-    ;;
-  *)
-    echo "$EXE: warning: untested system: $DISTRO" >&2
-  ;;
-esac
+# Add to patterns below, if other distribututions have been tested.
+
+TESTED=
+for PATTERN in \
+  '^CentOS Linux release 7\..*$' \
+  '^CentOS Linux release 8\..*$' \
+  '^CentOS Stream release 8\..*$' \
+  '^Rocky Linux release 8\..*$' \
+  '^Ubuntu 2[0-9]\..*$' \
+  ;
+do
+  if echo "$DISTRO" | grep -qE "$PATTERN" ; then
+    TESTED=yes
+  fi
+done
+
+if [ -z "$TESTED" ]; then
+  echo "$EXE: warning: untested system: $DISTRO" >&2
+fi
 
 #----------------------------------------------------------------
 # Check for root privileges
